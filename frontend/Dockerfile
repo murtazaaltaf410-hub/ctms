@@ -1,11 +1,11 @@
 # ---- Stage 1: build the React SPA ----
-# Build context is the REPO ROOT (see docker-compose web.build.context),
-# so we can pull both the frontend source and the shared nginx config.
+# Build context is the frontend/ directory (Railway rootDirectory: "frontend"),
+# so all paths are relative to frontend/.
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY frontend/package*.json ./
+COPY package*.json ./
 RUN npm ci
-COPY frontend/ .
+COPY . .
 RUN npm run build
 
 # ---- Stage 2: serve static build + reverse-proxy API/websocket ----
