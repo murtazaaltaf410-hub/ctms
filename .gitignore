@@ -1,0 +1,13 @@
+# deps
+**/node_modules
+# builds
+frontend/dist
+# env / secrets
+.env
+backend/.env
+frontend/.env
+# logs / os
+*.log
+.DS_Store
+# archives
+*.zip

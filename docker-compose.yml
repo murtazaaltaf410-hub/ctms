@@ -1,0 +1,66 @@
+# =====================================================================
+# CTMS — full stack: MySQL 8 + Node/Express API + Nginx-served React SPA
+# Usage:  cp .env.example .env  &&  docker compose up --build
+# App:    http://localhost:8080      API docs: http://localhost:8080/api/docs
+# =====================================================================
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ctms}
+      MYSQL_USER: ${MYSQL_USER:-ctms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ctms_password}
+    # Schema + seed are loaded automatically on FIRST boot (empty volume),
+    # in filename order: 01-schema then 02-seed.
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root_change_me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [ctms]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:8080}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER:-ctms}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-ctms_password}
+      DB_NAME: ${MYSQL_DATABASE:-ctms}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+    expose: ["4000"]
+    networks: [ctms]
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "8080:80"
+    networks: [ctms]
+
+volumes:
+  db_data:
+
+networks:
+  ctms:
+    driver: bridge
