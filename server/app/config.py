@@ -92,6 +92,24 @@ class Settings(BaseSettings):
     otp_request_retention_s: int = 86400
     timezone: str = "Asia/Kolkata"
 
+    # --- Phase 4: alerts + push (wiring; alert thresholds are the table keys above) ---
+    # fcm | fake | log. None = log in dev/test, fcm elsewhere (fake/log refused outside dev).
+    push_provider: Literal["fcm", "fake", "log"] | None = None
+    push_queue_max: int = 1000           # pending push jobs; extra jobs are dropped and logged
+    alert_queue_max: int = 1000          # pending fixes for the alert engine; oldest dropped when full
+    alert_track_radius_factor: float = 2.0  # distances are tracked out to factor x alert_radius_m
+    alert_rider_min_updates: int = 2     # A1: consecutive fixes within alert_rider_suppress_m = riding
+
+    @property
+    def resolved_push_provider(self) -> str:
+        return self.push_provider or ("log" if self.is_dev else "fcm")
+
+    @model_validator(mode="after")
+    def _push_fail_fast(self) -> Settings:
+        if not self.is_dev and self.resolved_push_provider != "fcm":
+            raise ValueError(f"PUSH_PROVIDER={self.push_provider} is for development only; use fcm")
+        return self
+
     @field_validator("google_oauth_client_ids", mode="before")
     @classmethod
     def _split_client_ids(cls, value: object) -> object:

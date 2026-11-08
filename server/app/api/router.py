@@ -24,5 +24,10 @@ api_router.include_router(me_router)
 # --- Phase 3: trips, tracking, live, ETA (add include_router lines here) ---------
 
 # --- Phase 4: alerts, announcements (add include_router lines here) ---------------
+from app.modules.alerts.router import router as alerts_router  # noqa: E402
+from app.modules.announcements.router import router as announcements_router  # noqa: E402
+
+api_router.include_router(alerts_router)
+api_router.include_router(announcements_router)
 
 # --- Phase 5: admin, buses, routes, schedules, reports, settings (add here) -------
