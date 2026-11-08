@@ -4,6 +4,8 @@
 frontend/dist
 # env / secrets
 .env
+.env.*
+!.env.example
 backend/.env
 frontend/.env
 # logs / os
@@ -11,3 +13,36 @@ frontend/.env
 .DS_Store
 # archives
 *.zip
+# graphify knowledge graph (generated)
+graphify-out/
+# claude-flow runtime state
+.claude-flow
+.swarm
+
+# Claude Code / agent tooling (local only: skills, agents, commands, helpers, MCP config)
+.claude/
+.mcp.json
+CLAUDE.local.md
+
+# source spec documents (PDFs kept locally; text extracts live in docs/v1/)
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/local.properties
+app/android/app/google-services.json
+app/ios/Runner/GoogleService-Info.plist
+
+# Firebase / Google credentials
+*service-account*.json
+firebase-adminsdk*.json
