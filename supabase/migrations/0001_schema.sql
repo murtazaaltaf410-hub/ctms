@@ -125,12 +125,13 @@ create table public.phone_otp_requests (
   expires_at    timestamptz,
   attempts      integer not null default 0 check (attempts >= 0),
   consumed_at   timestamptz,
+  provider      text check (provider in ('console', 'firebase', 'sms')),
   constraint phone_otp_requests_code_pair check ((code_hash is null) = (expires_at is null))
 );
 create index phone_otp_requests_phone_time_idx on public.phone_otp_requests (phone, requested_at desc);
 create index phone_otp_requests_requested_idx on public.phone_otp_requests (requested_at);
 comment on table public.phone_otp_requests is
-  'Driver OTP requests. code_hash = hash of a server-generated code (never the code); null with the Firebase provider. A code is usable while consumed_at is null, now() < expires_at and attempts < settings.otp_max_attempts. Retention: purge rows older than 1 day.';
+  'Driver OTP requests. NO PLAINTEXT CODES: only code_hash, a hash of a server-generated code (console/sms providers); null with the firebase provider. provider = the OtpProvider that handled the request. A code is usable while consumed_at is null, now() < expires_at and attempts < settings.otp_max_attempts. Retention: purge rows older than 1 day.';
 
 create table public.push_tokens (
   id          uuid primary key default gen_random_uuid(),
