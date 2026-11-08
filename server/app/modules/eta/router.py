@@ -14,7 +14,7 @@ from app.db import Conn
 from app.deps import AuthUser
 from app.errors import NotFound
 from app.live.state import classify, get_live
-from app.modules.eta.service import compute_eta, stop_along_m
+from app.modules.eta.service import compute_eta
 from app.modules.trips.schedule import Slot, next_departure
 from app.modules.trips.service import campus_tz
 from app.schemas import ApiModel, UtcDateTime
@@ -48,7 +48,7 @@ class StopEta(ApiModel):
 async def stop_eta(stop_id: UUID, request: Request, user: AuthUser, con: Conn) -> StopEta:
     app = request.app
     stop = await con.fetchrow(
-        "select id, route_id, lat, lng, dist_along_m from public.stops where id = $1 and active", stop_id
+        "select id, route_id, lat, lng from public.stops where id = $1 and active", stop_id
     )
     if stop is None:
         raise NotFound("Stop not found")
@@ -60,7 +60,7 @@ async def stop_eta(stop_id: UUID, request: Request, user: AuthUser, con: Conn) -
     for bus in get_live(app).on_route(stop["route_id"]):
         if not bus.has_position or bus.along_m is None:
             continue
-        d_stop = stop_along_m(bus, stop["lat"], stop["lng"], stop["dist_along_m"], get("snap_tie_tolerance_m"))
+        d_stop = bus.stop_distance(stop["id"], stop["lat"], stop["lng"], get("snap_tie_tolerance_m"))
         if d_stop is None:
             continue
         eta = compute_eta(d_stop, bus.along_m, bus.ema_speed_mps, v_min_mps=get("eta_v_min_kmh") / 3.6,

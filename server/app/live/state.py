@@ -78,6 +78,9 @@ class BusLive:
     snap_index: int = 0
     along_m: float | None = None
     distance_m: float = 0.0
+    # U6: stop_id -> distance along THIS trip's frozen polyline, taken when the trip
+    # was loaded. Stop edits mid-trip never change it (they apply from the next trip).
+    stop_along: dict[UUID, float] = field(default_factory=dict)
     last_stored_at: datetime | None = None     # history downsampling
     clock_skew_s: float | None = None          # T13: received - recorded, when large
     seen_fix_ids: OrderedDict[UUID, None] = field(default_factory=OrderedDict)
@@ -99,6 +102,15 @@ class BusLive:
             return
         alpha = 1 - math.exp(-dt_s / max(window_s / 3, 1e-6))
         self.ema_speed_mps += alpha * (sample_mps - self.ema_speed_mps)
+
+    def stop_distance(self, stop_id: UUID, lat: float, lng: float, tie_tolerance_m: float) -> float | None:
+        """The stop's distance on the frozen polyline: from the snapshot, else (a stop
+        added after the trip started) the stop snapped onto the same polyline."""
+        if stop_id in self.stop_along:
+            return self.stop_along[stop_id]
+        if not self.route.usable:
+            return None
+        return snap_forward(self.route.points, self.route.cum, lat, lng, 0, tie_tolerance_m).along_m
 
     def resnap(self, tie_tolerance_m: float) -> None:
         if not self.has_position or not self.route.usable:

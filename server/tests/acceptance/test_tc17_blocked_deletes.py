@@ -4,8 +4,6 @@ the trip apply from the next trip."""
 
 from __future__ import annotations
 
-import pytest
-
 from tests.acceptance.sim_support import plan, stop_eta, within
 
 
@@ -48,12 +46,6 @@ async def test_tc17_last_admin_cannot_be_removed(client, admin):
     assert resp.status_code == 409 and resp.json()["error"]["code"] == "LAST_ADMIN"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG P6-1 (U6): 'edits apply from the next trip' does not hold for ETAs. Adding or moving a stop during a "
-    "trip regenerates the polyline and rewrites every stop's dist_along_m at once, but the running trip keeps "
-    "its frozen polyline (RouteGeom). GET /stops/{id}/eta then mixes new stop distances with the old bus "
-    "position, so ETAs on the active trip jump by the length of the detour. app/modules/eta/router.py uses "
-    "stops.dist_along_m directly."))
 async def test_tc17_u6_stop_added_mid_trip_does_not_change_running_trip_etas(client, live_app, admin, fake_routes,
                                                                             sim_trip, google_login):
     _, headers = await admin()

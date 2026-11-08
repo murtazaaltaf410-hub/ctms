@@ -96,7 +96,7 @@ async def _bus_for_trip(app, con, driver_id: UUID, trip_id: UUID) -> BusLive:
             raise NotYourTrip()
         return bus
     row = await trips.owned_active_trip(con, driver_id, trip_id)
-    bus = trips.bus_from_row(app, row)   # N4: an active trip missing from memory resumes from this fix
+    bus = await trips.load_bus(app, con, row)   # N4: an active trip missing from memory resumes from this fix
     live.add(bus)
     return bus
 

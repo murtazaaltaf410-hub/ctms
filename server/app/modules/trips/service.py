@@ -16,6 +16,7 @@ from app import clock
 from app.audit import write_audit
 from app.errors import NotFound, NotYourTrip, TripAlreadyActive, ValidationFailed
 from app.geo import haversine_m
+from app.geo.snap import snap_forward
 from app.live import on_startup
 from app.live.conn import live_conn
 from app.live.hooks import TripEvent, emit_trip
@@ -75,6 +76,31 @@ def bus_from_row(app: Any, row: asyncpg.Record) -> BusLive:
         scheduled_departure=_scheduled_departure(app, row), status=row["status"], note=row["note"],
         distance_m=float(row["distance_m"] or 0.0),
     )
+
+
+async def load_bus(app: Any, con: asyncpg.Connection, row: asyncpg.Record) -> BusLive:
+    """A trip's live entry with its stop-distance snapshot (U6).
+
+    Each active stop is snapped onto the trip's own polyline in sequence order
+    (forward from the previous stop, so loops resolve correctly) instead of
+    trusting `stops.dist_along_m`, which a mid-trip route edit rewrites at once.
+    Accepted limitation: after a restart (`rebuild_live`) or an N4 resume, only
+    the CURRENT route polyline and stops exist in the DB, so a trip whose route
+    was edited mid-trip continues on the edited geometry.
+    """
+    bus = bus_from_row(app, row)
+    if not bus.route.usable:
+        return bus
+    tie = float(app.state.settings_store.get_cached("snap_tie_tolerance_m"))
+    stops = await con.fetch(
+        "select id, lat, lng from public.stops where route_id = $1 and active order by sequence", row["route_id"]
+    )
+    index = 0
+    for stop in stops:
+        snap = snap_forward(bus.route.points, bus.route.cum, stop["lat"], stop["lng"], index, tie)
+        bus.stop_along[stop["id"]] = snap.along_m
+        index = snap.index
+    return bus
 
 
 async def active_trip_for_driver(con: asyncpg.Connection, driver_id: UUID) -> asyncpg.Record | None:
@@ -142,7 +168,7 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
         raise
     row = await load_trip(con, trip_id)
     assert row is not None
-    bus_live = bus_from_row(app, row)
+    bus_live = await load_bus(app, con, row)
     get_live(app).add(bus_live)
     await broadcast(app, trip_started(bus_live.bus_id, trip_id))
     await emit_trip(app, TripEvent(trip_id, bus_live.bus_id, route_id, "started"))
@@ -156,7 +182,7 @@ async def set_status(app: FastAPI, con: asyncpg.Connection, row: asyncpg.Record,
     live = get_live(app)
     bus = live.by_trip(row["id"])
     if bus is None:
-        bus = bus_from_row(app, row)
+        bus = await load_bus(app, con, row)
         live.add(bus)
     bus.status, bus.note = status, note
     await broadcast(app, bus_status(bus))
@@ -220,7 +246,7 @@ async def rebuild_live(app: FastAPI) -> int:
     async with live_conn(app) as con:
         rows = await con.fetch(TRIP_SELECT + " where t.ended_at is null")
         for row in rows:
-            bus = bus_from_row(app, row)
+            bus = await load_bus(app, con, row)
             fix = await con.fetchrow(
                 """select lat, lng, heading, speed_mps, recorded_at, received_at from public.locations
                     where trip_id = $1 order by recorded_at desc, id desc limit 1""",
