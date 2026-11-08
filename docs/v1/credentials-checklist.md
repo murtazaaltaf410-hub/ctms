@@ -74,7 +74,7 @@ The server refuses to start outside dev with fewer than 32 characters. If you ro
    4. Delete the downloaded file from your Downloads folder afterwards, or keep it in your password manager. `*service-account*.json` and `firebase-adminsdk*.json` are gitignored, but don't rely on that.
 4. **Register the Android app** (needed by P7; you can do it now):
    1. Project overview → **Add app** → Android.
-   2. **Package name:** pick it now and tell the app agent. Suggested: `in.ac.uok.ctms` (production) and `in.ac.uok.ctms.staging` (staging flavour). Each package is a separate Android app in Firebase.
+   2. **Package name:** pick it now and tell the app agent. Suggested: `in.edu.uok.ctms` (production) and `in.edu.uok.ctms.staging` (staging flavour). Each package is a separate Android app in Firebase.
    3. Add the **SHA-1** from step 5c (debug now; add release later).
    4. Download **`google-services.json`** → it goes to `app/android/app/google-services.json` (gitignored; the flavour setup in P7 decides the exact folder). It contains only public client identifiers, but keep it out of git anyway.
 5. **Cloud Messaging:** nothing to configure. FCM HTTP v1 is enabled by default, and the service account is enough.
