@@ -16,7 +16,7 @@ Secrets go in the **Railway dashboard** (server) or in **gitignored files** (app
 | 6 | App signing SHA-1 (debug + release) | `keytool` / `./gradlew signingReport` (step 5c) | Firebase Android app, Android OAuth client, Maps key restriction | console settings | no |
 | 7 | OAuth **Web** client ID (`…apps.googleusercontent.com`) | Google Cloud → APIs & Services → Credentials | `GOOGLE_OAUTH_CLIENT_IDS` **and** the app's `serverClientId` | server + app | no |
 | 8 | OAuth **Android** client ID | Google Cloud → Credentials (package name + SHA-1) | Optional extra entry in `GOOGLE_OAUTH_CLIENT_IDS`. Its main job is to make sign-in work on the device | app (implicit) | no |
-| 9 | Maps SDK for Android key | Google Cloud → Credentials → API key, restricted to package + SHA-1 and to *Maps SDK for Android* | App build (`MAPS_API_KEY` gradle placeholder, P7). **Never on the server** | app | restricted client key |
+| 9 | Maps SDK for Android key | Google Cloud → Credentials → API key, restricted to package + SHA-1 and to *Maps SDK for Android* | App build: `app/android/local.properties` or env `MAPS_API_KEY_STAGING` / `MAPS_API_KEY_PROD` (fallback `MAPS_API_KEY`). **Never on the server** | app | restricted client key |
 | 10 | Routes API key (server only) | Google Cloud → Credentials → API key, restricted to *Routes API* | `GOOGLE_DIRECTIONS_KEY` | server | **yes** |
 | 11 | `APP_ENV` | Fixed value | `staging` or `production` | server | no |
 | 12 | `OTP_PROVIDER` | Decision (ADR-7) | `firebase` on Railway (`console` is refused outside dev) | server | no |
@@ -106,7 +106,7 @@ In <https://console.cloud.google.com>, select the **Firebase project** (`ctms-st
    - **Always the Web client ID.** On Android the app passes it as `serverClientId`, so the ID token's audience (`aud`) is the **Web** client ID, not the Android one. The server checks `aud` against this list.
    - Optional: the Android client ID(s), and the iOS client ID if an iOS build is ever made.
    - Example: `GOOGLE_OAUTH_CLIENT_IDS=1234-web.apps.googleusercontent.com,1234-android.apps.googleusercontent.com`
-5. **The app (P7)** gets the same Web client ID as `serverClientId` (a build-time `--dart-define`). Client IDs are not secrets.
+5. **The app (P7)** gets the same Web client ID as `--dart-define=GOOGLE_SERVER_CLIENT_ID=<web client id>`. Client IDs are not secrets.
 
 Symptom of a mismatch: students cannot sign in and get `401 TOKEN_INVALID` (runbook incident table). Check that the Web client ID in the app equals one entry in `GOOGLE_OAUTH_CLIENT_IDS` for that environment.
 
@@ -116,7 +116,7 @@ Symptom of a mismatch: students cannot sign in and get `401 TOKEN_INVALID` (runb
 2. **Credentials → Create credentials → API key** → **Edit**:
    - **Application restrictions:** *Android apps* → add the package name + SHA-1 (debug and release, every flavour package).
    - **API restrictions:** *Restrict key* → **Maps SDK for Android** only.
-3. This key goes into the app build (Android manifest placeholder, P7). It is visible in the APK, which is why the restrictions matter.
+3. This key goes into the app build: put `MAPS_API_KEY_STAGING=…` / `MAPS_API_KEY_PROD=…` in `app/android/local.properties` (gitignored) or set them as env vars (`MAPS_API_KEY` is the fallback for both). It is visible in the APK, which is why the restrictions matter.
 4. **Billing:** Maps needs a billing account on the project, even within the free monthly credit.
    - Set a **budget alert** (Billing → Budgets & alerts, for example ₹500/month with 50/90/100 % emails).
    - Set **quotas** (APIs & Services → Maps SDK for Android → Quotas). This is part of the launch gate.
@@ -154,6 +154,7 @@ APP_UPDATE_URL=            # e.g. the Play testing link or direct APK link
 | GitHub → repo → Settings → Secrets and variables → Actions → **Variables** | `KEEPALIVE_URLS` (not secret) |
 | GitHub → Actions **Secrets** (P7, when the app CI job is enabled) | `GOOGLE_SERVICES_JSON_STAGING` (base64 of the file) |
 | `app/android/app/google-services.json` (gitignored) | Firebase Android config per flavour |
-| App build defines (P7) | API base URL, Web client ID (`serverClientId`), Maps key |
+| App `--dart-define`s (P7) | `API_BASE_URL` (including `/api/v1`, e.g. `https://ctms-staging.up.railway.app/api/v1`), `WS_URL` (optional), `OTP_MODE=console\|firebase` (must match the server's `OTP_PROVIDER`), `GOOGLE_SERVER_CLIENT_ID` (the Web client ID) |
+| `app/android/local.properties` or env (P7) | `MAPS_API_KEY_STAGING`, `MAPS_API_KEY_PROD` (fallback `MAPS_API_KEY`) |
 | Your password manager | Supabase DB password, service-account JSON, `JWT_SECRET` per environment |
 | Local `server/.env` (gitignored, dev only) | `APP_ENV=dev` and optionally a dev `DATABASE_URL`. Nothing else is required in dev |

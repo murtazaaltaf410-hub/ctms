@@ -1,7 +1,7 @@
 # CI for CTMS V1 (runbook: "merge to main only after the automated tests pass").
 #   server: ruff + pytest against Postgres 16 with supabase/migrations applied to ctms_test
 #   docker: builds the server image exactly as Railway does (repo-root context)
-#   app:    Flutter analyze/test/build (P7) - commented out until app/ exists
+#   app:    flutter analyze + flutter test (P7)
 name: CI
 
 on:
@@ -90,31 +90,24 @@ jobs:
       - name: Build image (repo-root context, as Railway builds it)
         run: docker build -f server/Dockerfile -t ctms-server:ci .
 
-  # --- P7: enable once app/ (Flutter) exists ------------------------------------
-  # app:
-  #   name: App (flutter analyze + test + build apk)
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 30
-  #   defaults:
-  #     run:
-  #       working-directory: app
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-java@v4
-  #       with:
-  #         distribution: temurin
-  #         java-version: "17"
-  #     - uses: subosito/flutter-action@v2
-  #       with:
-  #         channel: stable
-  #         cache: true
-  #     - run: flutter pub get
-  #     - run: flutter analyze
-  #     - run: flutter test
-  #     # google-services.json is gitignored: write it from a repository secret
-  #     # (base64 of the staging file) before building.
-  #     - name: google-services.json (staging)
-  #       run: echo "$GOOGLE_SERVICES_JSON_STAGING" | base64 -d > android/app/google-services.json
-  #       env:
-  #         GOOGLE_SERVICES_JSON_STAGING: ${{ secrets.GOOGLE_SERVICES_JSON_STAGING }}
-  #     - run: flutter build apk --flavor staging --debug --dart-define=API_BASE_URL=https://staging.example.invalid
+  app:
+    name: App (flutter analyze + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+  # Release/APK builds stay manual for now: they need google-services.json and the
+  # Maps key, which are gitignored. To add one later, write the file from a secret
+  # (base64) and build with:
+  #   flutter build apk --flavor staging --dart-define=API_BASE_URL=... \
+  #     --dart-define=GOOGLE_SERVER_CLIENT_ID=... --dart-define=OTP_MODE=firebase
