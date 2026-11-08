@@ -17,7 +17,17 @@ class SignInScreen extends ConsumerStatefulWidget {
 
 class _SignInScreenState extends ConsumerState<SignInScreen> {
   bool _busy = false;
+  bool _createEmailAccount = false;
   String? _error;
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
 
   Future<void> _google() async {
     setState(() {
@@ -29,6 +39,39 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     } on ApiException catch (e) {
       _error = e.code == ApiErrorCode.forbiddenRole
           ? 'This Google account cannot use CTMS.'
+          : e.userMessage;
+    } on SignInFlowException catch (e) {
+      _error = e.message;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _emailPassword() async {
+    final email = _email.text.trim();
+    final password = _password.text;
+    if (!email.contains('@') || password.length < 6) {
+      setState(() {
+        _error = 'Enter a valid email address and a password of at least 6 characters.';
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final auth = ref.read(authControllerProvider.notifier);
+      if (_createEmailAccount) {
+        await auth.createEmailAccount(email, password);
+        _error = 'Check your inbox to verify your email, then sign in.';
+        _createEmailAccount = false;
+      } else {
+        await auth.signInWithEmailPassword(email, password);
+      }
+    } on ApiException catch (e) {
+      _error = e.code == ApiErrorCode.forbiddenRole
+          ? 'Drivers sign in with their phone number.'
           : e.userMessage;
     } on SignInFlowException catch (e) {
       _error = e.message;
@@ -79,6 +122,53 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                           )
                         : const Icon(Icons.login),
                     label: const Text('Continue with Google'),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'or use email',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _email,
+                    enabled: !_busy,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    decoration: const InputDecoration(
+                      labelText: 'Email address',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _password,
+                    enabled: !_busy,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: const InputDecoration(labelText: 'Password'),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    key: const Key('email-sign-in'),
+                    onPressed: _busy ? null : _emailPassword,
+                    child: Text(
+                      _createEmailAccount
+                          ? 'Create email account'
+                          : 'Sign in with email',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _createEmailAccount = !_createEmailAccount;
+                            _error = null;
+                          }),
+                    child: Text(
+                      _createEmailAccount
+                          ? 'I already have an account'
+                          : 'Create an email account',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(

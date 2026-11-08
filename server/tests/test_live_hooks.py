@@ -12,9 +12,20 @@ from app.live.hub import broadcast, get_hub
 
 def _fix() -> hooks.FixEvent:
     now = datetime.now(UTC)
-    return hooks.FixEvent(trip_id=uuid4(), bus_id=uuid4(), route_id=uuid4(), bus_label="B1",
-                          route_name="R1", lat=34.1, lng=74.8, speed_mps=5.0, heading=90.0,
-                          recorded_at=now, received_at=now, trip_status="on_time")
+    return hooks.FixEvent(
+        trip_id=uuid4(),
+        bus_id=uuid4(),
+        route_id=uuid4(),
+        bus_label="B1",
+        route_name="R1",
+        lat=34.1,
+        lng=74.8,
+        speed_mps=5.0,
+        heading=90.0,
+        recorded_at=now,
+        received_at=now,
+        trip_status="on_time",
+    )
 
 
 async def test_emit_fix_isolates_failing_listener(monkeypatch):

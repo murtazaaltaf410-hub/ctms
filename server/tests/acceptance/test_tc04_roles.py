@@ -27,8 +27,9 @@ ADMIN_CALLS = [
 
 
 @pytest.mark.parametrize(("method", "path", "body"), ADMIN_CALLS)
-async def test_tc4_student_and_driver_get_forbidden_role_on_admin_endpoints(client, google_login, create_user,
-                                                                            driver_login, method, path, body):
+async def test_tc4_student_and_driver_get_forbidden_role_on_admin_endpoints(
+    client, google_login, create_user, driver_login, method, path, body
+):
     student = await google_login(sub="tc4-student", email="tc4@uok.edu.in")
     await create_user("driver", name="TC4 Driver", phone="+919822200001")
     driver = await driver_login("+919822200001")
@@ -63,7 +64,10 @@ async def test_tc4_students_cannot_post_fixes_or_start_trips(client, live_app, s
     route, _owner, trip, player = await sim_trip()
     student = await google_login(sub="tc4-s2", email="tc4b@uok.edu.in")
     _, events = plan(route.geom, player.start, minutes=1)
-    for path, body in ((f"/api/v1/trips/{trip['id']}/locations", events[0].item.payload),
-                       ("/api/v1/trips/start", {}), (f"/api/v1/trips/{uuid4()}/end", None)):
+    for path, body in (
+        (f"/api/v1/trips/{trip['id']}/locations", events[0].item.payload),
+        ("/api/v1/trips/start", {}),
+        (f"/api/v1/trips/{uuid4()}/end", None),
+    ):
         resp = await client.post(path, json=body, headers=bearer(student["access_token"]))
         assert resp.status_code == 403 and resp.json()["error"]["code"] == "FORBIDDEN_ROLE", (path, resp.text)

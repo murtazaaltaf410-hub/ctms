@@ -35,17 +35,25 @@ class ConsoleOtpProvider:
         self._secret = secret
         self._sink = sink
 
-    async def issue(self, con: asyncpg.Connection, *, phone: str, ip: str | None, is_driver: bool,
-                    now: datetime, ttl_s: int) -> None:
+    async def issue(
+        self, con: asyncpg.Connection, *, phone: str, ip: str | None, is_driver: bool, now: datetime, ttl_s: int
+    ) -> None:
         code = new_otp_code()
-        await insert_request(con, provider=self.name, phone=phone, ip=ip, now=now,
-                             code_hash=hash_otp(phone, code, self._secret),
-                             expires_at=now + timedelta(seconds=ttl_s))
+        await insert_request(
+            con,
+            provider=self.name,
+            phone=phone,
+            ip=ip,
+            now=now,
+            code_hash=hash_otp(phone, code, self._secret),
+            expires_at=now + timedelta(seconds=ttl_s),
+        )
         if is_driver:
             self._sink(phone, code)
 
-    async def verify(self, con: asyncpg.Connection, *, phone: str, otp: str, now: datetime, ttl_s: int,
-                     max_attempts: int) -> None:
+    async def verify(
+        self, con: asyncpg.Connection, *, phone: str, otp: str, now: datetime, ttl_s: int, max_attempts: int
+    ) -> None:
         row = await con.fetchrow(
             """select id, code_hash, expires_at, attempts, consumed_at
                from public.phone_otp_requests
@@ -61,8 +69,6 @@ class ConsoleOtpProvider:
             raise OtpExpired("Too many wrong codes; request a new one")
         if not otp.isdigit() or not hmac.compare_digest(hash_otp(phone, otp, self._secret), row["code_hash"]):
             # Outside any transaction on purpose: the attempt must stick even though we raise.
-            await con.execute("update public.phone_otp_requests set attempts = attempts + 1 where id = $1",
-                              row["id"])
+            await con.execute("update public.phone_otp_requests set attempts = attempts + 1 where id = $1", row["id"])
             raise OtpInvalid()
-        await con.execute("update public.phone_otp_requests set consumed_at = $2 where id = $1",
-                          row["id"], now)
+        await con.execute("update public.phone_otp_requests set consumed_at = $2 where id = $1", row["id"], now)

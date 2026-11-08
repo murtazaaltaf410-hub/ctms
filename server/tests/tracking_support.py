@@ -84,16 +84,26 @@ def make_route(con: asyncpg.Connection) -> Callable:
         route_id = await con.fetchval(
             """insert into public.routes (name, polyline, cum_dist_m, length_m, status)
                values ($1, $2, $3, $4, 'active') returning id""",
-            name, poly, cum, cum[-1],
+            name,
+            poly,
+            cum,
+            cum[-1],
         )
         stop_ids = []
         for seq, along in enumerate(stops or [0.0, 555.0, cum[-1]], start=1):
             lat, lng = point_at(along)
-            stop_ids.append(await con.fetchval(
-                """insert into public.stops (route_id, name, lat, lng, sequence, dist_along_m)
+            stop_ids.append(
+                await con.fetchval(
+                    """insert into public.stops (route_id, name, lat, lng, sequence, dist_along_m)
                    values ($1, $2, $3, $4, $5, $6) returning id""",
-                route_id, f"Stop {seq}", lat, lng, seq, along,
-            ))
+                    route_id,
+                    f"Stop {seq}",
+                    lat,
+                    lng,
+                    seq,
+                    along,
+                )
+            )
         return {"id": route_id, "stops": stop_ids, "cum": cum, "name": name}
 
     return make
@@ -111,13 +121,21 @@ def driver_with_bus(con, create_user, driver_login, make_route) -> Callable:
         phone = f"+9199{n:08d}"
         driver_id = await create_user("driver", name=f"Driver {n}", phone=phone)
         bus_id = await con.fetchval(
-            "insert into public.buses (label, plate, driver_id, default_route_id) values ($1, $2, $3, $4) "
-            "returning id",
-            label or f"Bus {n}", f"JK01P3{n:04d}", driver_id, route["id"],
+            "insert into public.buses (label, plate, driver_id, default_route_id) values ($1, $2, $3, $4) returning id",
+            label or f"Bus {n}",
+            f"JK01P3{n:04d}",
+            driver_id,
+            route["id"],
         )
         tokens = await driver_login(phone)
-        return {"driver_id": driver_id, "bus_id": bus_id, "route": route, "phone": phone,
-                "token": tokens["access_token"], "headers": bearer(tokens["access_token"])}
+        return {
+            "driver_id": driver_id,
+            "bus_id": bus_id,
+            "route": route,
+            "phone": phone,
+            "token": tokens["access_token"],
+            "headers": bearer(tokens["access_token"]),
+        }
 
     return make
 
@@ -132,10 +150,24 @@ def start_trip(client) -> Callable:
     return start
 
 
-def fix(lat: float, lng: float, at: datetime, *, accuracy: float = 8.0, speed: float | None = None,
-        heading: float | None = 0.0, fix_id: UUID | None = None) -> dict:
-    out = {"fix_id": str(fix_id or uuid4()), "lat": lat, "lng": lng, "accuracy": accuracy,
-           "heading": heading, "recorded_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z")}
+def fix(
+    lat: float,
+    lng: float,
+    at: datetime,
+    *,
+    accuracy: float = 8.0,
+    speed: float | None = None,
+    heading: float | None = 0.0,
+    fix_id: UUID | None = None,
+) -> dict:
+    out = {
+        "fix_id": str(fix_id or uuid4()),
+        "lat": lat,
+        "lng": lng,
+        "accuracy": accuracy,
+        "heading": heading,
+        "recorded_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+    }
     if speed is not None:
         out["speed"] = speed
     return out
@@ -149,8 +181,7 @@ def along_fix(along_m: float, at: datetime, **kw) -> dict:
 @pytest.fixture
 def post_fixes(client) -> Callable:
     async def post(driver: dict, trip_id: str, fixes: list[dict], expect: int = 200) -> dict:
-        resp = await client.post(f"/api/v1/trips/{trip_id}/locations", json={"fixes": fixes},
-                                 headers=driver["headers"])
+        resp = await client.post(f"/api/v1/trips/{trip_id}/locations", json={"fixes": fixes}, headers=driver["headers"])
         assert resp.status_code == expect, resp.text
         return resp.json()
 

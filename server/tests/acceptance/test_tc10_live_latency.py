@@ -36,6 +36,6 @@ async def test_tc10_each_upload_reaches_students_immediately(client, live_app, s
     assert len(uploads) == len(events)
     positions = [m for m in ws.sent if m["type"] == "bus_position"]
     assert len(positions) == len(uploads)
-    assert ws.sent[0]["type"] == "bus_position"     # the trip_started went out before the student connected
+    assert ws.sent[0]["type"] == "bus_position"  # the trip_started went out before the student connected
     headings = {m["heading"] for m in positions}
-    assert {0.0, 90.0} <= headings                    # north leg, then east leg after the corner
+    assert {0.0, 90.0} <= headings  # north leg, then east leg after the corner

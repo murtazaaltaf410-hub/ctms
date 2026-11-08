@@ -39,11 +39,14 @@ async def test_auth_timeout_closes_socket(con, live_app):
     assert hub_clients(live_app) == 0
 
 
-@pytest.mark.parametrize(("first", "reason"), [
-    ('{"type": "ping"}', "AUTH_REQUIRED"),
-    ("not json", "AUTH_REQUIRED"),
-    ('{"type": "auth", "token": "garbage"}', "TOKEN_INVALID"),
-])
+@pytest.mark.parametrize(
+    ("first", "reason"),
+    [
+        ('{"type": "ping"}', "AUTH_REQUIRED"),
+        ("not json", "AUTH_REQUIRED"),
+        ('{"type": "auth", "token": "garbage"}', "TOKEN_INVALID"),
+    ],
+)
 async def test_bad_first_message_closes(live_app, first, reason):
     ws = FakeWS(live_app)
     ws.say(first)
@@ -51,8 +54,9 @@ async def test_bad_first_message_closes(live_app, first, reason):
     assert ws.closed == (4401, reason)
 
 
-async def test_ping_pong_and_broadcasts(client, live_app, google_login, driver_with_bus, start_trip, post_fixes,
-                                        fake_clock):
+async def test_ping_pong_and_broadcasts(
+    client, live_app, google_login, driver_with_bus, start_trip, post_fixes, fake_clock
+):
     student = await google_login()
     ws, task = await connect(live_app, student["access_token"])
     assert ws.closed is None and hub_clients(live_app) == 1
@@ -61,15 +65,17 @@ async def test_ping_pong_and_broadcasts(client, live_app, google_login, driver_w
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     await post_fixes(driver, trip["id"], [along_fix(0, fake_clock.current, speed=6.0)])
-    await client.post(f"/api/v1/trips/{trip['id']}/status", json={"status": "breakdown", "note": "Flat tyre"},
-                      headers=driver["headers"])
+    await client.post(
+        f"/api/v1/trips/{trip['id']}/status",
+        json={"status": "breakdown", "note": "Flat tyre"},
+        headers=driver["headers"],
+    )
     await client.post(f"/api/v1/trips/{trip['id']}/end", headers=driver["headers"])
     types = [m["type"] for m in ws.sent]
     assert types == ["pong", "trip_started", "bus_position", "bus_status", "trip_ended"]
     position = ws.sent[2]
     assert set(position) == {"type", "bus_id", "trip_id", "lat", "lng", "heading", "speed", "recorded_at"}
-    assert ws.sent[3] == {"type": "bus_status", "bus_id": trip["bus_id"], "status": "breakdown",
-                          "note": "Flat tyre"}
+    assert ws.sent[3] == {"type": "bus_status", "bus_id": trip["bus_id"], "status": "breakdown", "note": "Flat tyre"}
     ws.hang_up()
     await asyncio.wait_for(task, timeout=2)
     assert hub_clients(live_app) == 0
@@ -79,7 +85,7 @@ async def test_revoked_session_socket_is_closed(live_app, driver_with_bus, drive
     driver = await driver_with_bus()
     ws, task = await connect(live_app, driver["token"])
     assert hub_clients(live_app) == 1
-    await driver_login(driver["phone"])   # T11: second device replaces the first session
+    await driver_login(driver["phone"])  # T11: second device replaces the first session
     await asyncio.wait_for(task, timeout=2)
     assert ws.closed == (4401, "SESSION_REPLACED")
     assert hub_clients(live_app) == 0
@@ -93,8 +99,11 @@ async def test_revoked_session_socket_is_closed(live_app, driver_with_bus, drive
 async def test_logout_closes_socket(client, live_app, google_login):
     student = await google_login()
     ws, task = await connect(live_app, student["access_token"])
-    resp = await client.post("/api/v1/auth/logout", json={"refresh_token": student["refresh_token"]},
-                             headers={"Authorization": f"Bearer {student['access_token']}"})
+    resp = await client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": student["refresh_token"]},
+        headers={"Authorization": f"Bearer {student['access_token']}"},
+    )
     assert resp.status_code == 204, resp.text
     await asyncio.wait_for(task, timeout=2)
     assert ws.closed is not None and ws.closed[0] == 4401
@@ -102,7 +111,7 @@ async def test_logout_closes_socket(client, live_app, google_login):
 
 async def test_idle_client_dropped(con, live_app, google_login):
     student = await google_login()
-    live_app.state.config.ws_idle_timeout_s = 0.05   # config-only key (not in the settings table)
+    live_app.state.config.ws_idle_timeout_s = 0.05  # config-only key (not in the settings table)
     ws, task = await connect(live_app, student["access_token"])
     await asyncio.wait_for(task, timeout=2)
     assert ws.closed == (1001, "IDLE_TIMEOUT") and hub_clients(live_app) == 0
@@ -123,9 +132,14 @@ async def test_expired_token_rejected(live_app, fake_clock):
 
     from app.security import create_access_token
 
-    token = create_access_token(user_id=uuid4(), session_id=uuid4(), role="student",
-                                secret=live_app.state.config.jwt_secret, ttl_s=1,
-                                now=fake_clock.current - timedelta(hours=1))
+    token = create_access_token(
+        user_id=uuid4(),
+        session_id=uuid4(),
+        role="student",
+        secret=live_app.state.config.jwt_secret,
+        ttl_s=1,
+        now=fake_clock.current - timedelta(hours=1),
+    )
     ws = FakeWS(live_app)
     ws.say(json.dumps({"type": "auth", "token": token}))
     await asyncio.wait_for(live_ws(ws), timeout=2)

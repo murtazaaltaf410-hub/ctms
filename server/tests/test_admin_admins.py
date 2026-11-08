@@ -39,19 +39,23 @@ async def test_add_admin_then_remove_original(client, admin, con, google_login):
     # Removing yourself is fine while you are not the last admin.
     assert (await client.delete(f"/api/v1/admin/admins/{first}", headers=headers)).status_code == 204
     assert await con.fetchval("select role from public.users where id = $1", first) == "student"
-    assert not await con.fetchval("select exists(select 1 from public.admin_allowlist where email = $1)",
-                                  "admin1@uok.edu.in")
+    assert not await con.fetchval(
+        "select exists(select 1 from public.admin_allowlist where email = $1)", "admin1@uok.edu.in"
+    )
     resp = await client.get("/api/v1/admin/admins", headers=headers)
     assert resp.status_code == 401  # sessions revoked on demotion
-    assert {r["revoked_reason"] for r in await con.fetch(
-        "select revoked_reason from public.sessions where user_id = $1", first)} == {"role_change"}
+    assert {
+        r["revoked_reason"]
+        for r in await con.fetch("select revoked_reason from public.sessions where user_id = $1", first)
+    } == {"role_change"}
 
     # Now the new admin is the last one.
     resp = await client.delete(f"/api/v1/admin/admins/{new['id']}", headers=new_headers)
     assert resp.status_code == 409 and err(resp) == "LAST_ADMIN"
 
-    changes = await con.fetch("select actor_id, target_id, meta from public.audit_log "
-                              "where action = 'user.role_change' order by id")
+    changes = await con.fetch(
+        "select actor_id, target_id, meta from public.audit_log where action = 'user.role_change' order by id"
+    )
     assert [(c["meta"]["from"], c["meta"]["to"]) for c in changes][-2:] == [(None, "admin"), ("admin", "student")]
     assert changes[-1]["actor_id"] == first and changes[-1]["meta"]["self"] is True
 
@@ -74,8 +78,9 @@ async def test_add_existing_student_promotes_and_rejects_drivers(client, admin, 
 async def test_seed_admin_always_counts(client, admin, con, google_login):
     me, headers = await admin()
     listed = (await client.get("/api/v1/admin/admins", headers=headers)).json()["items"]
-    assert [i for i in listed if i["seed"]] == [{"id": None, "email": "seed@uok.edu.in", "name": "",
-                                                 "signed_in": False, "seed": True, "created_at": None}]
+    assert [i for i in listed if i["seed"]] == [
+        {"id": None, "email": "seed@uok.edu.in", "name": "", "signed_in": False, "seed": True, "created_at": None}
+    ]
     # The seed admin (configured in the env) still counts, so the only signed-in admin may leave.
     assert (await client.delete(f"/api/v1/admin/admins/{me}", headers=headers)).status_code == 204
 

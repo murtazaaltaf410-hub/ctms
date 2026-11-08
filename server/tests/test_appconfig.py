@@ -26,8 +26,9 @@ async def test_config_is_public_with_defaults(client):
     assert resp.headers["cache-control"] == "public, max-age=60"
 
 
-@pytest.mark.parametrize("config_overrides", [{"min_app_version": "1.4.2",
-                                               "app_update_url": "https://example.org/ctms.apk"}])
+@pytest.mark.parametrize(
+    "config_overrides", [{"min_app_version": "1.4.2", "app_update_url": "https://example.org/ctms.apk"}]
+)
 async def test_config_env_overrides(client):
     body = (await client.get("/api/v1/config")).json()
     assert body["min_app_version"] == "1.4.2"
@@ -38,9 +39,10 @@ async def test_config_settings_table_wins(client, app, con):
     await con.execute(
         """insert into public.settings (key, value) values ('alert_radius_m', $1), ('min_app_version', $2)
            on conflict (key) do update set value = excluded.value""",
-        750, "2.0.0",
+        750,
+        "2.0.0",
     )
-    await app.state.settings_store.refresh(con)   # tests have no pool; prime the cache from the test tx
+    await app.state.settings_store.refresh(con)  # tests have no pool; prime the cache from the test tx
     body = (await client.get("/api/v1/config")).json()
     assert body["alert_radius_m"] == 750
     assert body["min_app_version"] == "2.0.0"
@@ -48,7 +50,7 @@ async def test_config_settings_table_wins(client, app, con):
 
 
 async def test_config_works_without_database():
-    app = create_app(make_config())   # no lifespan -> no pool: the refresh fails quietly
+    app = create_app(make_config())  # no lifespan -> no pool: the refresh fails quietly
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.get("/api/v1/config")
     assert resp.status_code == 200

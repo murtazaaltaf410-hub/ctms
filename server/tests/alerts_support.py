@@ -35,14 +35,32 @@ class Trip:
     bus_label: str
     route_name: str
 
-    def fix(self, north_m: float, east_m: float = 0.0, *, at: datetime | None = None,
-            status: str = "on_time", origin: tuple[float, float] = BASE) -> FixEvent:
+    def fix(
+        self,
+        north_m: float,
+        east_m: float = 0.0,
+        *,
+        at: datetime | None = None,
+        status: str = "on_time",
+        origin: tuple[float, float] = BASE,
+    ) -> FixEvent:
         """A fix `north_m`/`east_m` metres from `origin` (the students' default spot)."""
         at = at or clock.now()
         lat, lng = offset(*origin, north_m=north_m, east_m=east_m)
-        return FixEvent(trip_id=self.trip_id, bus_id=self.bus_id, route_id=self.route_id,
-                        bus_label=self.bus_label, route_name=self.route_name, lat=lat, lng=lng,
-                        speed_mps=8.0, heading=180.0, recorded_at=at, received_at=at, trip_status=status)
+        return FixEvent(
+            trip_id=self.trip_id,
+            bus_id=self.bus_id,
+            route_id=self.route_id,
+            bus_label=self.bus_label,
+            route_name=self.route_name,
+            lat=lat,
+            lng=lng,
+            speed_mps=8.0,
+            heading=180.0,
+            recorded_at=at,
+            received_at=at,
+            trip_status=status,
+        )
 
 
 class FakeWs:
@@ -75,7 +93,11 @@ def world(con: asyncpg.Connection, create_user: Callable, create_bus: Callable) 
         bus_id = await create_bus(driver_id, label=label, plate=f"JK01P4{n:04d}")
         trip_id = await con.fetchval(
             """insert into public.trips (bus_id, driver_id, route_id, type) values ($1, $2, $3, 'ad_hoc')
-               returning id""", bus_id, driver_id, route_id)
+               returning id""",
+            bus_id,
+            driver_id,
+            route_id,
+        )
         return Trip(trip_id, bus_id, route_id, label, route_name)
 
     return make
@@ -83,13 +105,23 @@ def world(con: asyncpg.Connection, create_user: Callable, create_bus: Callable) 
 
 @pytest.fixture
 def student(con: asyncpg.Connection, create_user: Callable) -> Callable:
-    async def make(*, north_m: float = 0.0, east_m: float = 0.0, accuracy: float = 20.0,
-                   age_s: float = 10.0, enabled: bool = True, token: str | None = "auto") -> UUID:
+    async def make(
+        *,
+        north_m: float = 0.0,
+        east_m: float = 0.0,
+        accuracy: float = 20.0,
+        age_s: float = 10.0,
+        enabled: bool = True,
+        token: str | None = "auto",
+    ) -> UUID:
         n = next(_seq)
         user_id = await create_user("student", name=f"Student {n}", email=f"p4-student{n}@uok.edu.in")
         if token:
-            await con.execute("insert into public.push_tokens (user_id, token, platform) values ($1, $2, 'android')",
-                              user_id, f"tok-{n}" if token == "auto" else token)
+            await con.execute(
+                "insert into public.push_tokens (user_id, token, platform) values ($1, $2, 'android')",
+                user_id,
+                f"tok-{n}" if token == "auto" else token,
+            )
         await con.execute("insert into public.alert_settings (user_id, enabled) values ($1, $2)", user_id, enabled)
         await set_location(con, user_id, north_m=north_m, east_m=east_m, accuracy=accuracy, age_s=age_s)
         return user_id
@@ -97,15 +129,27 @@ def student(con: asyncpg.Connection, create_user: Callable) -> Callable:
     return make
 
 
-async def set_location(con: asyncpg.Connection, user_id: UUID, *, north_m: float = 0.0, east_m: float = 0.0,
-                       accuracy: float = 20.0, age_s: float = 10.0) -> None:
+async def set_location(
+    con: asyncpg.Connection,
+    user_id: UUID,
+    *,
+    north_m: float = 0.0,
+    east_m: float = 0.0,
+    accuracy: float = 20.0,
+    age_s: float = 10.0,
+) -> None:
     lat, lng = offset(*BASE, north_m=north_m, east_m=east_m)
     await con.execute(
         """insert into public.student_locations (user_id, lat, lng, accuracy_m, recorded_at)
            values ($1, $2, $3, $4, $5)
            on conflict (user_id) do update set lat = excluded.lat, lng = excluded.lng,
              accuracy_m = excluded.accuracy_m, recorded_at = excluded.recorded_at""",
-        user_id, lat, lng, accuracy, clock.now() - timedelta(seconds=age_s))
+        user_id,
+        lat,
+        lng,
+        accuracy,
+        clock.now() - timedelta(seconds=age_s),
+    )
 
 
 async def alert_count(con: asyncpg.Connection, student_id: UUID) -> int:

@@ -15,6 +15,15 @@ class AuthRepository {
             as Json,
       );
 
+  Future<AuthTokens> signInWithFirebase(String idToken) async =>
+      AuthTokens.fromJson(
+        await _api.post(
+          'auth/firebase',
+          body: {'id_token': idToken},
+          auth: false,
+        ) as Json,
+      );
+
   /// Always 202 with an empty body, registered or not (TC2). 429 with
   /// `Retry-After` after 3 requests per 10 min (U4).
   Future<void> requestPhoneCode(String phone) =>

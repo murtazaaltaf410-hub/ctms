@@ -24,14 +24,16 @@ from app.errors import TokenInvalid
 from app.main import create_app
 from app.otp import ConsoleOtpProvider
 
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/ctms_test"
-)
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/ctms_test")
 
 
 def make_config(**overrides) -> Settings:
-    values = {"app_env": "test", "database_url": TEST_DATABASE_URL,
-              "google_oauth_client_ids": ["test-client-id"], "otp_provider": "console"}
+    values = {
+        "app_env": "test",
+        "database_url": TEST_DATABASE_URL,
+        "google_oauth_client_ids": ["test-client-id"],
+        "otp_provider": "console",
+    }
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
@@ -44,8 +46,13 @@ class FakeGoogle:
 
     def token(self, sub: str, email: str, name: str = "Test User", email_verified: bool = True) -> str:
         tok = f"google-token-{sub}-{len(self.tokens)}"
-        self.tokens[tok] = {"sub": sub, "email": email, "name": name, "email_verified": email_verified,
-                            "iss": "https://accounts.google.com"}
+        self.tokens[tok] = {
+            "sub": sub,
+            "email": email,
+            "name": name,
+            "email_verified": email_verified,
+            "iss": "https://accounts.google.com",
+        }
         return tok
 
     async def __call__(self, token: str) -> dict:
@@ -54,13 +61,32 @@ class FakeGoogle:
         return self.tokens[token]
 
 
+class FakeFirebase:
+    """Firebase Admin verifier fake for verified email/password ID tokens."""
+
+    def __init__(self) -> None:
+        self.tokens: dict[str, dict] = {}
+
+    def token(self, uid: str, email: str, name: str = "Test User", email_verified: bool = True) -> str:
+        tok = f"firebase-token-{uid}-{len(self.tokens)}"
+        self.tokens[tok] = {"uid": uid, "email": email, "name": name, "email_verified": email_verified}
+        return tok
+
+    async def __call__(self, token: str) -> dict:
+        if token not in self.tokens:
+            raise TokenInvalid("Firebase ID token rejected")
+        return self.tokens[token]
+
+
 @pytest.fixture
 async def con() -> AsyncIterator[asyncpg.Connection]:
     try:
         connection = await asyncpg.connect(TEST_DATABASE_URL)
     except (OSError, asyncpg.PostgresError) as exc:
-        pytest.fail(f"test database unreachable at {TEST_DATABASE_URL} ({exc}); run "
-                    "`docker compose -f docker-compose.dev.yml up -d` from the repo root")
+        pytest.fail(
+            f"test database unreachable at {TEST_DATABASE_URL} ({exc}); run "
+            "`docker compose -f docker-compose.dev.yml up -d` from the repo root"
+        )
     await init_conn(connection)
     tr = connection.transaction()
     await tr.start()
@@ -94,7 +120,14 @@ def google() -> FakeGoogle:
 
 
 @pytest.fixture
-def app(config: Settings, con: asyncpg.Connection, otp_codes: dict[str, str], google: FakeGoogle):
+def firebase() -> FakeFirebase:
+    return FakeFirebase()
+
+
+@pytest.fixture
+def app(
+    config: Settings, con: asyncpg.Connection, otp_codes: dict[str, str], google: FakeGoogle, firebase: FakeFirebase
+):
     application = create_app(config)
 
     async def test_conn() -> AsyncIterator[asyncpg.Connection]:
@@ -102,6 +135,7 @@ def app(config: Settings, con: asyncpg.Connection, otp_codes: dict[str, str], go
 
     application.dependency_overrides[get_conn] = test_conn
     application.state.google_verifier = google
+    application.state.firebase_token_verifier = firebase
     application.state.otp_provider = ConsoleOtpProvider(config.jwt_secret, sink=otp_codes.__setitem__)
     yield application
     application.dependency_overrides.clear()
@@ -119,12 +153,21 @@ def bearer(token: str) -> dict[str, str]:
 
 @pytest.fixture
 def create_user(con: asyncpg.Connection) -> Callable:
-    async def make(role: str = "student", *, name: str = "User", email: str | None = None,
-                   phone: str | None = None, active: bool = True) -> UUID:
+    async def make(
+        role: str = "student",
+        *,
+        name: str = "User",
+        email: str | None = None,
+        phone: str | None = None,
+        active: bool = True,
+    ) -> UUID:
         return await con.fetchval(
-            "insert into public.users (role, name, email, phone, active) values ($1, $2, $3, $4, $5) "
-            "returning id",
-            role, name, email, phone, active,
+            "insert into public.users (role, name, email, phone, active) values ($1, $2, $3, $4, $5) returning id",
+            role,
+            name,
+            email,
+            phone,
+            active,
         )
 
     return make
@@ -135,7 +178,9 @@ def create_bus(con: asyncpg.Connection) -> Callable:
     async def make(driver_id: UUID | None = None, *, label: str = "Bus T", plate: str = "JK01TEST01") -> UUID:
         return await con.fetchval(
             "insert into public.buses (label, plate, driver_id) values ($1, $2, $3) returning id",
-            label, plate, driver_id,
+            label,
+            plate,
+            driver_id,
         )
 
     return make
@@ -145,6 +190,16 @@ def create_bus(con: asyncpg.Connection) -> Callable:
 def google_login(client: httpx.AsyncClient, google: FakeGoogle) -> Callable:
     async def login(sub: str = "sub-1", email: str = "student@uok.edu.in", name: str = "Student") -> dict:
         resp = await client.post("/api/v1/auth/google", json={"id_token": google.token(sub, email, name)})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    return login
+
+
+@pytest.fixture
+def firebase_login(client: httpx.AsyncClient, firebase: FakeFirebase) -> Callable:
+    async def login(uid: str = "firebase-1", email: str = "student@uok.edu.in", name: str = "Student") -> dict:
+        resp = await client.post("/api/v1/auth/firebase", json={"id_token": firebase.token(uid, email, name)})
         assert resp.status_code == 200, resp.text
         return resp.json()
 

@@ -18,8 +18,7 @@ async def state_of(client, driver) -> str:
     return bus["state"]
 
 
-async def test_tc8_stale_at_30s_offline_at_2min(client, live_app, driver_with_bus, start_trip, post_fixes,
-                                                fake_clock):
+async def test_tc8_stale_at_30s_offline_at_2min(client, live_app, driver_with_bus, start_trip, post_fixes, fake_clock):
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     await post_fixes(driver, trip["id"], [along_fix(0, fake_clock.current, speed=8)])
@@ -43,15 +42,21 @@ async def test_trip_without_fix_not_listed_yet(client, live_app, driver_with_bus
     assert (await client.get("/api/v1/buses/live", headers=driver["headers"])).json() == []
 
 
-async def test_tc19_restart_mid_trip_rebuilds_from_db(client, con, live_app, driver_with_bus, start_trip, post_fixes,
-                                                      fake_clock):
+async def test_tc19_restart_mid_trip_rebuilds_from_db(
+    client, con, live_app, driver_with_bus, start_trip, post_fixes, fake_clock
+):
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     t0 = fake_clock.current
-    await post_fixes(driver, trip["id"], [along_fix(10 * i, t0 + timedelta(seconds=2 * i), speed=5)
-                                         for i in range(4)])
-    await post_fixes(driver, trip["id"], [along_fix(40, t0 + timedelta(seconds=8)), ])
-    await get_writer(live_app).flush(live_app)   # shutdown flush
+    await post_fixes(driver, trip["id"], [along_fix(10 * i, t0 + timedelta(seconds=2 * i), speed=5) for i in range(4)])
+    await post_fixes(
+        driver,
+        trip["id"],
+        [
+            along_fix(40, t0 + timedelta(seconds=8)),
+        ],
+    )
+    await get_writer(live_app).flush(live_app)  # shutdown flush
     # "Restart": all in-memory state is lost.
     live_app.state.live = None
     live_app.state.live_writer = None
@@ -69,11 +74,12 @@ async def test_tc19_restart_mid_trip_rebuilds_from_db(client, con, live_app, dri
     assert await con.fetchval("select ended_at from public.trips where id = $1", UUID(trip["id"])) is None
 
 
-async def test_n4_active_trip_missing_from_memory_resumes_on_next_fix(client, live_app, driver_with_bus, start_trip,
-                                                                      post_fixes, fake_clock):
+async def test_n4_active_trip_missing_from_memory_resumes_on_next_fix(
+    client, live_app, driver_with_bus, start_trip, post_fixes, fake_clock
+):
     driver = await driver_with_bus()
     trip = await start_trip(driver)
-    live_app.state.live = None   # lost without a rebuild
+    live_app.state.live = None  # lost without a rebuild
     f = along_fix(0, fake_clock.current)
     assert (await post_fixes(driver, trip["id"], [f]))["accepted"] == [f["fix_id"]]
     assert len((await client.get("/api/v1/buses/live", headers=driver["headers"])).json()) == 1

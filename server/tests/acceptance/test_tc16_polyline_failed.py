@@ -19,7 +19,7 @@ async def test_tc16_routes_api_failure_leaves_a_draft(client, con, live_app, adm
     assert body["error"]["code"] == "POLYLINE_FAILED" and "No route found" in body["error"]["message"]
     route = body["route"]
     assert route["status"] == "draft" and route["polyline"] is None and len(route["stops"]) == len(STOPS)
-    assert route["polyline_error"] and len(fake_routes.calls) == 1        # Directions called once
+    assert route["polyline_error"] and len(fake_routes.calls) == 1  # Directions called once
     route_id = route["id"]
 
     # Not activatable, not listed for students, and a driver cannot start a trip on it.

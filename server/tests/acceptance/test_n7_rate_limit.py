@@ -26,12 +26,12 @@ async def test_n7_429_with_retry_after_then_buffered_fixes_resent(client, live_a
         if resp.status_code == 429:
             limited += 1
             assert resp.json()["error"]["code"] == "RATE_LIMITED" and int(resp.headers["Retry-After"]) > 0
-            continue                                    # keep buffering
+            continue  # keep buffering
         assert resp.status_code == 200, resp.text
         accepted |= set(resp.json()["accepted"])
         buffer = buffer[20:]
     assert limited > 0
-    live_app.state.rate_limiter.reset()                 # the window passes
+    live_app.state.rate_limiter.reset()  # the window passes
     while buffer:
         resp = await client.post(url, json={"fixes": [f.payload() for f in buffer[:20]]}, headers=driver["headers"])
         assert resp.status_code == 200, resp.text

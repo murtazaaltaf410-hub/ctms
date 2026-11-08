@@ -43,12 +43,16 @@ def test_passed_stop_and_tolerance():
 
 
 async def test_stop_eta_without_buses_returns_empty_list_and_next_scheduled(
-        client, con, live_app, make_route, google_login, fake_clock):
+    client, con, live_app, make_route, google_login, fake_clock
+):
     route = await make_route()
     tz = ZoneInfo("Asia/Kolkata")
     slot_local = (fake_clock.current.astimezone(tz) + timedelta(hours=2)).time().replace(second=0)
-    await con.execute("insert into public.schedules (route_id, departure_time, days_of_week) "
-                      "values ($1, $2, '{1,2,3,4,5,6,7}')", route["id"], time(slot_local.hour, slot_local.minute))
+    await con.execute(
+        "insert into public.schedules (route_id, departure_time, days_of_week) values ($1, $2, '{1,2,3,4,5,6,7}')",
+        route["id"],
+        time(slot_local.hour, slot_local.minute),
+    )
     student = await google_login()
     resp = await client.get(f"/api/v1/stops/{route['stops'][1]}/eta", headers=bearer(student["access_token"]))
     assert resp.status_code == 200, resp.text
@@ -59,21 +63,24 @@ async def test_stop_eta_without_buses_returns_empty_list_and_next_scheduled(
 
 async def test_stop_eta_unknown_stop_is_404(client, live_app, google_login):
     student = await google_login()
-    resp = await client.get("/api/v1/stops/00000000-0000-4000-8000-000000000999/eta",
-                            headers=bearer(student["access_token"]))
+    resp = await client.get(
+        "/api/v1/stops/00000000-0000-4000-8000-000000000999/eta", headers=bearer(student["access_token"])
+    )
     assert resp.status_code == 404
 
 
 async def test_stop_eta_for_moving_bus_and_passed_stop(
-        client, live_app, driver_with_bus, start_trip, post_fixes, google_login, fake_clock):
+    client, live_app, driver_with_bus, start_trip, post_fixes, google_login, fake_clock
+):
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     t0 = fake_clock.current
     # Constant 10 m/s from 100 m to 300 m along the route.
-    await post_fixes(driver, trip["id"], [along_fix(100 + 10 * i, t0 + timedelta(seconds=i), speed=10.0)
-                                         for i in range(0, 21, 4)])
+    await post_fixes(
+        driver, trip["id"], [along_fix(100 + 10 * i, t0 + timedelta(seconds=i), speed=10.0) for i in range(0, 21, 4)]
+    )
     student = await google_login()
-    stops = driver["route"]["stops"]   # at 0 m, 555 m, end
+    stops = driver["route"]["stops"]  # at 0 m, 555 m, end
     passed = (await client.get(f"/api/v1/stops/{stops[0]}/eta", headers=bearer(student["access_token"]))).json()
     ahead = (await client.get(f"/api/v1/stops/{stops[1]}/eta", headers=bearer(student["access_token"]))).json()
     assert passed["etas"][0]["passed"] is True and passed["etas"][0]["eta_seconds"] is None

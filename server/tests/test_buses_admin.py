@@ -13,19 +13,24 @@ from tests.admin_helpers import admin, err, insert_route, insert_trip  # noqa: F
 async def test_create_list_patch_bus(client, admin, con):
     actor, headers = await admin()
     rid = await insert_route(con)
-    resp = await client.post("/api/v1/admin/buses", json={"label": "Bus 7", "plate": "JK01AB1234",
-                                                         "default_route_id": str(rid)}, headers=headers)
+    resp = await client.post(
+        "/api/v1/admin/buses",
+        json={"label": "Bus 7", "plate": "JK01AB1234", "default_route_id": str(rid)},
+        headers=headers,
+    )
     assert resp.status_code == 201, resp.text
     bus = resp.json()
     assert bus["active"] is True and bus["driver_id"] is None and bus["default_route_id"] == str(rid)
     assert bus["has_active_trip"] is False
 
-    resp = await client.patch(f"/api/v1/admin/buses/{bus['id']}", json={"label": "Bus 8", "default_route_id": None},
-                              headers=headers)
+    resp = await client.patch(
+        f"/api/v1/admin/buses/{bus['id']}", json={"label": "Bus 8", "default_route_id": None}, headers=headers
+    )
     assert resp.status_code == 200 and resp.json()["label"] == "Bus 8" and resp.json()["default_route_id"] is None
 
-    audit = await con.fetch("select action, actor_id, meta from public.audit_log where target_id = $1 order by id",
-                            bus["id"])
+    audit = await con.fetch(
+        "select action, actor_id, meta from public.audit_log where target_id = $1 order by id", bus["id"]
+    )
     assert [(a["action"], a["actor_id"]) for a in audit] == [("bus.create", actor), ("bus.update", actor)]
     assert audit[1]["meta"] == {"fields": ["default_route_id", "label"]}
 
@@ -37,12 +42,15 @@ async def test_bus_validation(client, admin, con):
     assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR" and "plate" in resp.json()["error"]["message"]
     resp = await client.post("/api/v1/admin/buses", json={"label": "", "plate": "P2"}, headers=headers)
     assert resp.status_code == 400
-    resp = await client.post("/api/v1/admin/buses", json={"label": "C", "plate": "P3",
-                                                         "default_route_id": "00000000-0000-4000-8000-000000000000"},
-                             headers=headers)
+    resp = await client.post(
+        "/api/v1/admin/buses",
+        json={"label": "C", "plate": "P3", "default_route_id": "00000000-0000-4000-8000-000000000000"},
+        headers=headers,
+    )
     assert resp.status_code == 400 and "default_route_id" in resp.json()["error"]["message"]
-    resp = await client.patch("/api/v1/admin/buses/00000000-0000-4000-8000-000000000000", json={"label": "x"},
-                              headers=headers)
+    resp = await client.patch(
+        "/api/v1/admin/buses/00000000-0000-4000-8000-000000000000", json={"label": "x"}, headers=headers
+    )
     assert resp.status_code == 404 and err(resp) == "NOT_FOUND"
     bus_id = (await client.get("/api/v1/admin/buses", headers=headers)).json()["items"][0]["id"]
     resp = await client.patch(f"/api/v1/admin/buses/{bus_id}", json={"active": None}, headers=headers)
@@ -72,8 +80,9 @@ async def test_deactivate_bus_with_active_trip_is_in_use(client, admin, con, cre
     rid = await insert_route(con)
     driver = await create_user("driver", phone="+919000000201")
     bus = await create_bus(driver)
-    trip = await insert_trip(con, bus_id=bus, driver_id=driver, route_id=rid,
-                             started_at=datetime.now(UTC) - timedelta(minutes=10))
+    trip = await insert_trip(
+        con, bus_id=bus, driver_id=driver, route_id=rid, started_at=datetime.now(UTC) - timedelta(minutes=10)
+    )
     listed = (await client.get("/api/v1/admin/buses", headers=headers)).json()["items"][0]
     assert listed["has_active_trip"] is True and listed["driver_id"] == str(driver)
     resp = await client.patch(f"/api/v1/admin/buses/{bus}", json={"active": False}, headers=headers)
@@ -82,7 +91,8 @@ async def test_deactivate_bus_with_active_trip_is_in_use(client, admin, con, cre
     resp = await client.patch(f"/api/v1/admin/buses/{bus}", json={"label": "Renamed"}, headers=headers)
     assert resp.status_code == 200
 
-    await con.execute("update public.trips set ended_at = started_at + interval '5 minutes', closed_by = 'driver' "
-                      "where id = $1", trip)
+    await con.execute(
+        "update public.trips set ended_at = started_at + interval '5 minutes', closed_by = 'driver' where id = $1", trip
+    )
     resp = await client.patch(f"/api/v1/admin/buses/{bus}", json={"active": False}, headers=headers)
     assert resp.status_code == 200 and resp.json()["active"] is False

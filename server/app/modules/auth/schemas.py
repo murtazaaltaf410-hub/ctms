@@ -23,6 +23,10 @@ class GoogleSignInIn(ApiModel):
     id_token: str = Field(min_length=1, max_length=8192)
 
 
+class FirebaseSignInIn(ApiModel):
+    id_token: str = Field(min_length=1, max_length=8192)
+
+
 class PhoneRequestIn(ApiModel):
     phone: str = Field(min_length=1, max_length=32)
 
@@ -35,9 +39,10 @@ class PhoneRequestIn(ApiModel):
 class PhoneVerifyIn(ApiModel):
     phone: str = Field(min_length=1, max_length=32)
     otp: str = Field(
-        min_length=1, max_length=8192,
+        min_length=1,
+        max_length=8192,
         description="The 6-digit code (console/SMS provider) or, with OTP_PROVIDER=firebase, the Firebase "
-                    "ID token from Firebase Phone Auth on the device (ADR-1/ADR-7).",
+        "ID token from Firebase Phone Auth on the device (ADR-1/ADR-7).",
     )
 
     @field_validator("phone")
@@ -52,9 +57,10 @@ class RefreshIn(ApiModel):
 
 class LogoutIn(ApiModel):
     push_token: str | None = Field(
-        default=None, max_length=4096,
+        default=None,
+        max_length=4096,
         description="Extension: remove only this device's push token. Without a body all of the "
-                    "user's push tokens are removed.",
+        "user's push tokens are removed.",
     )
 
 

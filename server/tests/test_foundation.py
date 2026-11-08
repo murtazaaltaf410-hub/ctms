@@ -20,10 +20,21 @@ from app.settings_store import SettingsStore
 from tests.conftest import make_config
 
 SPEC_CODES = {
-    "VALIDATION_ERROR": 400, "OTP_INVALID": 400, "OTP_EXPIRED": 400, "TOKEN_EXPIRED": 401,
-    "TOKEN_INVALID": 401, "SESSION_REPLACED": 401, "FORBIDDEN_ROLE": 403, "NOT_YOUR_TRIP": 403,
-    "NOT_FOUND": 404, "TRIP_ALREADY_ACTIVE": 409, "LAST_ADMIN": 409, "IN_USE": 409,
-    "POLYLINE_FAILED": 422, "RATE_LIMITED": 429, "DB_UNAVAILABLE": 503,
+    "VALIDATION_ERROR": 400,
+    "OTP_INVALID": 400,
+    "OTP_EXPIRED": 400,
+    "TOKEN_EXPIRED": 401,
+    "TOKEN_INVALID": 401,
+    "SESSION_REPLACED": 401,
+    "FORBIDDEN_ROLE": 403,
+    "NOT_YOUR_TRIP": 403,
+    "NOT_FOUND": 404,
+    "TRIP_ALREADY_ACTIVE": 409,
+    "LAST_ADMIN": 409,
+    "IN_USE": 409,
+    "POLYLINE_FAILED": 422,
+    "RATE_LIMITED": 429,
+    "DB_UNAVAILABLE": 503,
 }
 
 
@@ -41,8 +52,7 @@ async def test_health_db_unavailable_without_pool(config):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as ac:
         resp = await ac.get("/health")
     assert resp.status_code == 503
-    assert resp.json() == {"error": {"code": "DB_UNAVAILABLE",
-                                     "message": "Database temporarily unavailable; retry"}}
+    assert resp.json() == {"error": {"code": "DB_UNAVAILABLE", "message": "Database temporarily unavailable; retry"}}
 
 
 async def test_connection_lost_mid_request_is_503(config):
@@ -65,8 +75,15 @@ async def test_connection_lost_mid_request_is_503(config):
 async def test_openapi_and_docs(client):
     assert (await client.get("/docs")).status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    for path in ("/api/v1/auth/google", "/api/v1/auth/phone/request", "/api/v1/auth/phone/verify",
-                 "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/me", "/api/v1/me/push-token"):
+    for path in (
+        "/api/v1/auth/google",
+        "/api/v1/auth/phone/request",
+        "/api/v1/auth/phone/verify",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/logout",
+        "/api/v1/me",
+        "/api/v1/me/push-token",
+    ):
         assert path in spec["paths"], path
 
 
@@ -174,9 +191,14 @@ async def test_rate_limiter_sliding_window():
 def test_config_fail_fast_outside_dev():
     with pytest.raises(ValueError, match="JWT_SECRET"):
         Settings(_env_file=None, app_env="production")
-    good = {"app_env": "production", "database_url": "postgresql://u:p@db:5432/x", "jwt_secret": "s" * 40,
-            "google_oauth_client_ids": "a.apps.googleusercontent.com,b", "fcm_credentials": "{}",
-            "google_directions_key": "k"}
+    good = {
+        "app_env": "production",
+        "database_url": "postgresql://u:p@db:5432/x",
+        "jwt_secret": "s" * 40,
+        "google_oauth_client_ids": "a.apps.googleusercontent.com,b",
+        "fcm_credentials": "{}",
+        "google_directions_key": "k",
+    }
     with pytest.raises(ValueError, match="OTP_PROVIDER must be set"):
         Settings(_env_file=None, **good)
     with pytest.raises(ValueError, match="development only"):

@@ -27,8 +27,13 @@ async def test_create_route_generates_polyline_once(client, admin, fake_routes, 
     assert along[0] == 0 and along == sorted(along) and along[-1] == route["length_m"] > 700
     db = await con.fetchrow("select cum_dist_m, length_m from public.routes where id = $1", route["id"])
     assert len(db["cum_dist_m"]) == len(CAMPUS) and db["cum_dist_m"][-1] == db["length_m"]
-    assert await con.fetchval("select count(*) from public.audit_log where action = 'route.polyline_generated' "
-                              "and target_id = $1", route["id"]) == 1
+    assert (
+        await con.fetchval(
+            "select count(*) from public.audit_log where action = 'route.polyline_generated' and target_id = $1",
+            route["id"],
+        )
+        == 1
+    )
 
     # Public view (any signed-in user).
     listed = (await client.get("/api/v1/routes", headers=headers)).json()
@@ -77,8 +82,7 @@ async def test_route_with_too_few_stops_stays_draft_without_error(client, admin,
 
 async def test_stop_insert_reorder_and_remove(client, admin, fake_routes):
     _, headers = await admin()
-    route = (await client.post("/api/v1/admin/routes", json={"name": "R", "stops": STOPS[1:]},
-                               headers=headers)).json()
+    route = (await client.post("/api/v1/admin/routes", json={"name": "R", "stops": STOPS[1:]}, headers=headers)).json()
     rid = route["id"]
     resp = await client.post(f"/api/v1/admin/routes/{rid}/stops", json={**STOPS[0], "sequence": 1}, headers=headers)
     assert resp.status_code == 201
@@ -105,8 +109,9 @@ async def test_stop_insert_reorder_and_remove(client, admin, fake_routes):
 async def test_stop_limits_and_validation(client, admin, fake_routes, config_overrides):
     _, headers = await admin()
     rid = (await client.post("/api/v1/admin/routes", json={"name": "R", "stops": STOPS}, headers=headers)).json()["id"]
-    resp = await client.post(f"/api/v1/admin/routes/{rid}/stops", json={"name": "x", "lat": 95, "lng": 0},
-                             headers=headers)
+    resp = await client.post(
+        f"/api/v1/admin/routes/{rid}/stops", json={"name": "x", "lat": 95, "lng": 0}, headers=headers
+    )
     assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR"
     many = [{"name": f"S{i}", "lat": 34 + i / 1000, "lng": 74.8} for i in range(28)]
     resp = await client.post("/api/v1/admin/routes", json={"name": "Long", "stops": many}, headers=headers)
@@ -119,10 +124,12 @@ async def test_tc17_u6_route_and_stop_in_use(client, admin, fake_routes, con, cr
     driver = await create_user("driver", phone="+919000000101")
     bus = await create_bus(driver)
     await con.execute("update public.buses set default_route_id = $2 where id = $1", bus, rid)
-    trip = await insert_trip(con, bus_id=bus, driver_id=driver, route_id=rid,
-                             started_at=datetime.now(UTC) - timedelta(hours=1))
-    stop_ids = [r["id"] for r in await con.fetch("select id from public.stops where route_id = $1 order by sequence",
-                                                 rid)]
+    trip = await insert_trip(
+        con, bus_id=bus, driver_id=driver, route_id=rid, started_at=datetime.now(UTC) - timedelta(hours=1)
+    )
+    stop_ids = [
+        r["id"] for r in await con.fetch("select id from public.stops where route_id = $1 order by sequence", rid)
+    ]
 
     resp = await client.patch(f"/api/v1/admin/routes/{rid}", json={"active": False}, headers=headers)
     assert resp.status_code == 409 and err(resp) == "IN_USE"
@@ -149,9 +156,14 @@ async def test_tc17_u6_route_and_stop_in_use(client, admin, fake_routes, con, cr
 
 async def test_non_admin_is_forbidden(client, google_login, fake_routes):
     student = bearer((await google_login("stu", "s@gmail.com"))["access_token"])
-    for method, path in (("get", "/api/v1/admin/routes"), ("post", "/api/v1/admin/routes"),
-                         ("get", "/api/v1/admin/buses"), ("get", "/api/v1/admin/trips"),
-                         ("get", "/api/v1/admin/settings"), ("get", "/api/v1/admin/admins")):
+    for method, path in (
+        ("get", "/api/v1/admin/routes"),
+        ("post", "/api/v1/admin/routes"),
+        ("get", "/api/v1/admin/buses"),
+        ("get", "/api/v1/admin/trips"),
+        ("get", "/api/v1/admin/settings"),
+        ("get", "/api/v1/admin/admins"),
+    ):
         resp = await client.request(method, path, json={"name": "x"}, headers=student)
         assert resp.status_code == 403 and err(resp) == "FORBIDDEN_ROLE", path
     assert (await client.get("/api/v1/routes")).status_code == 401

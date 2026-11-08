@@ -20,5 +20,4 @@ def get_otp_provider(request: Request) -> OtpProvider:
     return request.app.state.otp_provider
 
 
-__all__ = ["ConsoleOtpProvider", "FirebaseOtpProvider", "OtpProvider", "build_otp_provider",
-           "get_otp_provider"]
+__all__ = ["ConsoleOtpProvider", "FirebaseOtpProvider", "OtpProvider", "build_otp_provider", "get_otp_provider"]

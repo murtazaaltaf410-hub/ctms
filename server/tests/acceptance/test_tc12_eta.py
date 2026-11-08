@@ -15,7 +15,7 @@ CAP_S = 1800
 async def test_tc12_eta_matches_formula_within_5_percent(client, live_app, sim_trip, google_login, speed_kmh):
     route, _driver, _trip, player = await sim_trip()
     headers = {"Authorization": f"Bearer {(await google_login())['access_token']}"}
-    target = len(route.stops) - 2                       # the stop at 2250 m, past the corner
+    target = len(route.stops) - 2  # the stop at 2250 m, past the corner
     stop_along = route.stop_along[target]
     _, events = plan(route.geom, player.start, speed_kmh=speed_kmh, fix_every_s=3, interval_s=6)
     v = speed_kmh / 3.6
@@ -53,7 +53,7 @@ async def test_tc12_slow_bus_uses_v_min(client, live_app, sim_trip, google_login
 
 async def test_a9_parked_bus_eta_is_capped_at_30_min(client, live_app, sim_trip, google_login, sim_route):
     """EC-A9: a long route and a stationary bus give the 30-minute cap with `capped`, not a growing number."""
-    long_route = await sim_route([(34.1200, 74.8300), (34.1650, 74.8300)], [0.0, None])   # ~5 km straight
+    long_route = await sim_route([(34.1200, 74.8300), (34.1650, 74.8300)], [0.0, None])  # ~5 km straight
     route, _driver, _trip, player = await sim_trip(route=long_route)
     headers = {"Authorization": f"Bearer {(await google_login())['access_token']}"}
     _, events = plan(route.geom, player.start, speed_kmh=0.01, fix_every_s=5, interval_s=10, minutes=3)

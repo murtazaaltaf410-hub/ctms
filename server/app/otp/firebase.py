@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 import asyncpg
 import firebase_admin
+from fastapi import Request
 from firebase_admin import auth, credentials
 
 from app.config import Settings
@@ -51,19 +52,27 @@ def firebase_token_verifier(config: Settings) -> TokenVerifier:
     return verify
 
 
+def get_firebase_token_verifier(request: Request) -> TokenVerifier:
+    """Return the app override in tests, otherwise verify Firebase Admin tokens."""
+    override = getattr(request.app.state, "firebase_token_verifier", None)
+    return override or firebase_token_verifier(request.app.state.config)
+
+
 class FirebaseOtpProvider:
     name = "firebase"
 
     def __init__(self, verifier: TokenVerifier) -> None:
         self._verifier = verifier
 
-    async def issue(self, con: asyncpg.Connection, *, phone: str, ip: str | None, is_driver: bool,
-                    now: datetime, ttl_s: int) -> None:
+    async def issue(
+        self, con: asyncpg.Connection, *, phone: str, ip: str | None, is_driver: bool, now: datetime, ttl_s: int
+    ) -> None:
         # Firebase sends the SMS from the device; the row proves a recent request.
         await insert_request(con, provider=self.name, phone=phone, ip=ip, now=now)
 
-    async def verify(self, con: asyncpg.Connection, *, phone: str, otp: str, now: datetime, ttl_s: int,
-                     max_attempts: int) -> None:
+    async def verify(
+        self, con: asyncpg.Connection, *, phone: str, otp: str, now: datetime, ttl_s: int, max_attempts: int
+    ) -> None:
         try:
             claims = await self._verifier(otp)
         except TokenExpiredError as exc:
@@ -76,7 +85,8 @@ class FirebaseOtpProvider:
             raise OtpExpired()
         recent = await con.fetchval(
             "select exists(select 1 from public.phone_otp_requests where phone = $1 and requested_at > $2)",
-            phone, now - timedelta(seconds=ttl_s),
+            phone,
+            now - timedelta(seconds=ttl_s),
         )
         if not recent:
             raise OtpExpired()

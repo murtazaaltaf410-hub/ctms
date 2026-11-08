@@ -8,8 +8,9 @@ from tests.acceptance.sim_support import SimPlayer, alert_student, drain_alerts,
 PERSONAL = ["student_locations", "push_tokens", "alert_settings", "sessions", "consents"]
 
 
-async def test_tc20_delete_account_removes_personal_data_and_stops_alerts(client, con, live_app, push, sim_trip,
-                                                                         start_trip, google_login):
+async def test_tc20_delete_account_removes_personal_data_and_stops_alerts(
+    client, con, live_app, push, sim_trip, start_trip, google_login
+):
     route, driver, _trip, player = await sim_trip()
     s = await alert_student(client, google_login, 31, *route.stop_point(1))
     await client.put("/api/v1/me/consents", json={"kind": "location", "version": "v1"}, headers=s.headers)
@@ -19,7 +20,7 @@ async def test_tc20_delete_account_removes_personal_data_and_stops_alerts(client
 
     _, events = plan(route.geom, player.start, speed_kmh=30, interval_s=10, minutes=2)
     await player.play(events, after=after)
-    assert len(push.sent) == 1                                   # alerted once on this trip
+    assert len(push.sent) == 1  # alerted once on this trip
     assert await con.fetchval("select count(*) from public.alert_log where student_id = $1", s.id) == 1
 
     resp = await client.delete("/api/v1/me", headers=s.headers)

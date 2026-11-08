@@ -34,9 +34,10 @@ async def test_t13_phone_clock_running_ahead_like_time_scale(client, live_app, s
     route, driver, trip, player = await sim_trip()
     _, events = plan(route.geom, player.start, speed_kmh=30, interval_s=10, minutes=4)
     for ev in events:
-        player.move_clock(ev.t / 5)            # wall clock runs 5x slower than simulated time
-        resp = await client.post(f"/api/v1/trips/{trip['id']}/locations", json=ev.item.payload,
-                                 headers=driver["headers"])
+        player.move_clock(ev.t / 5)  # wall clock runs 5x slower than simulated time
+        resp = await client.post(
+            f"/api/v1/trips/{trip['id']}/locations", json=ev.item.payload, headers=driver["headers"]
+        )
         assert resp.status_code == 200 and not resp.json()["rejected"], resp.text
     bus = await live_bus(client, driver["headers"], trip["bus_id"])
     assert bus["state"] == "live" and bus["clock_skew_s"] is not None and bus["clock_skew_s"] < -30
@@ -52,12 +53,13 @@ async def test_t14_parked_with_engine_running_is_stopped_not_offline(client, liv
     assert bus["state"] == "stopped" and bus["speed"] < 0.5
 
 
-async def test_ec_a4_two_buses_within_a_minute_give_one_combined_alert(client, live_app, push, sim_trip,
-                                                                       sim_route, google_login, fake_clock):
+async def test_ec_a4_two_buses_within_a_minute_give_one_combined_alert(
+    client, live_app, push, sim_trip, sim_route, google_login, fake_clock
+):
     route = await sim_route()
     _, _d1, _t1, p1 = await sim_trip(route=route, label="Bus 1")
     _, _d2, _t2, p2 = await sim_trip(route=route, label="Bus 2")
-    p2.start = p1.start + timedelta(seconds=20)               # the second bus follows 20 s behind
+    p2.start = p1.start + timedelta(seconds=20)  # the second bus follows 20 s behind
     s = await alert_student(client, google_login, 51, *route.stop_point(2))
     _, e1 = plan(route.geom, p1.start, speed_kmh=30, interval_s=10)
     _, e2 = plan(route.geom, p2.start, speed_kmh=30, interval_s=10)
@@ -68,16 +70,20 @@ async def test_ec_a4_two_buses_within_a_minute_give_one_combined_alert(client, l
         await drain_alerts(live_app)
     mine = [m for m in push.sent if m.token == s.push_token]
     assert [m.title for m in mine] == ["Bus nearby", "2 buses are nearby"]
-    assert mine[1].tag == mine[0].tag == "nearby_alert"         # the second replaces the first on the phone
+    assert mine[1].tag == mine[0].tag == "nearby_alert"  # the second replaces the first on the phone
     assert "Bus 1" in mine[1].body and "Bus 2" in mine[1].body
 
 
-async def test_ec_a8_breakdown_status_stops_alerts_and_shows_status(client, live_app, push, sim_trip,
-                                                                    google_login):
+async def test_ec_a8_breakdown_status_stops_alerts_and_shows_status(client, live_app, push, sim_trip, google_login):
     route, _driver, trip, player = await sim_trip()
     s = await alert_student(client, google_login, 52, *route.stop_point(3))
-    _, events = plan(route.geom, player.start, speed_kmh=30, interval_s=10,
-                     statuses=[StatusChange(60, "breakdown", "Engine trouble")])
+    _, events = plan(
+        route.geom,
+        player.start,
+        speed_kmh=30,
+        interval_s=10,
+        statuses=[StatusChange(60, "breakdown", "Engine trouble")],
+    )
 
     async def after(upload):
         await drain_alerts(live_app)
@@ -93,8 +99,7 @@ async def test_ec_a8_breakdown_status_stops_alerts_and_shows_status(client, live
 async def test_n6_n5_history_complete_after_simulated_drive(con, live_app, sim_trip):
     """The batched writer stores every accepted fix exactly once over a long drive with faults."""
     route, _driver, trip, player = await sim_trip()
-    fixes, events = plan(route.geom, player.start, speed_kmh=30, interval_s=5, duplicate_every=3,
-                         bad_accuracy_every=7)
+    fixes, events = plan(route.geom, player.start, speed_kmh=30, interval_s=5, duplicate_every=3, bad_accuracy_every=7)
     await player.play(events)
     await get_writer(live_app).flush(live_app)
     stored = await con.fetchval("select count(*) from public.locations where trip_id = $1", UUID(trip["id"]))

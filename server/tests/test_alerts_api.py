@@ -26,13 +26,19 @@ async def student_auth(google_login) -> tuple[str, dict]:
 
 
 def loc(lat=34.131, lng=74.837, accuracy=15.0, age_s=5.0, **extra) -> dict:
-    return {"lat": lat, "lng": lng, "accuracy": accuracy,
-            "recorded_at": (clock.now() - timedelta(seconds=age_s)).isoformat(), **extra}
+    return {
+        "lat": lat,
+        "lng": lng,
+        "accuracy": accuracy,
+        "recorded_at": (clock.now() - timedelta(seconds=age_s)).isoformat(),
+        **extra,
+    }
 
 
 async def stored(con, user_id):
-    return await con.fetchrow("select lat, lng, accuracy_m, recorded_at from public.student_locations "
-                              "where user_id = $1::uuid", user_id)
+    return await con.fetchrow(
+        "select lat, lng, accuracy_m, recorded_at from public.student_locations where user_id = $1::uuid", user_id
+    )
 
 
 async def test_location_stores_only_the_latest(client, con, student_auth):
@@ -46,14 +52,17 @@ async def test_location_stores_only_the_latest(client, con, student_auth):
     assert (await stored(con, sid))["lat"] == pytest.approx(34.2)
 
 
-@pytest.mark.parametrize("kwargs, field", [
-    ({"accuracy": 100}, "accuracy"),
-    ({"age_s": 301}, "recorded_at"),
-    ({"lat": 91}, "lat"),
-    ({"lng": -181}, "lng"),
-    ({"accuracy": -1}, "accuracy"),
-    ({"recorded_at": "2026-11-08T10:00:00"}, "recorded_at"),  # no timezone
-])
+@pytest.mark.parametrize(
+    "kwargs, field",
+    [
+        ({"accuracy": 100}, "accuracy"),
+        ({"age_s": 301}, "recorded_at"),
+        ({"lat": 91}, "lat"),
+        ({"lng": -181}, "lng"),
+        ({"accuracy": -1}, "accuracy"),
+        ({"recorded_at": "2026-11-08T10:00:00"}, "recorded_at"),  # no timezone
+    ],
+)
 async def test_location_validation(client, con, student_auth, kwargs, field):
     sid, auth = student_auth
     body = loc(**kwargs)
@@ -111,8 +120,7 @@ async def test_disabling_alerts_deletes_the_stored_location(client, con, student
 async def test_alert_settings_is_student_only(client, con, google_login):
     await con.execute("insert into public.admin_allowlist (email) values ('p4-adm2@uok.edu.in')")
     admin = await google_login(sub="p4-adm2", email="p4-adm2@uok.edu.in")
-    resp = await client.put("/api/v1/me/alert-settings", json={"enabled": False},
-                            headers=bearer(admin["access_token"]))
+    resp = await client.put("/api/v1/me/alert-settings", json={"enabled": False}, headers=bearer(admin["access_token"]))
     assert resp.status_code == 403
 
 

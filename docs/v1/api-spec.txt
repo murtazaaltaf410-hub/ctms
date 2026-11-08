@@ -1,8 +1,8 @@
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
- N ov 4, 2026 · @ Waris
+ N ov 4, 2026 ï¿½ @ Waris
 
 All V1 endpoints are JSON over HTTPS under /api/v1 , authenticated with a bearer
 token, and follow the TRD; FastAPI will also serve the generated OpenAPI page at /docs
@@ -40,13 +40,18 @@ Errors                       HTTP status + body { "error": { "code":
 Rate limits                  429 with Retry-After seconds
 
                                                                                  Page 1 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 Auth and account endpoints
 
 Method and path              Who     Request          Response and notes
                              Public
 POST /auth/google                    { id_token }     { access_token,
+
+POST /auth/firebase          Public  { id_token }     Firebase email/password ID
+                                                       token; verified email only;
+                                                       creates/links student, admins
+                                                       matched by email allow-list
 
 POST                         Public  { phone }        refresh_token, user } ;
 /auth/phone/request                                   creates a student on first sign-
@@ -88,7 +93,7 @@ GET /trips/active                                     The driver's active trip o
                                                       null
 
                                                                                Page 2 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 Method and path              Who     Request             Response and notes
                              Driver                      201 trip with type scheduled
@@ -133,7 +138,7 @@ or OUT_OF_ORDER . Rejected fixes never fail the whole request, so the driver app
 its buffer after any 200 response. The coordinates above are illustrative only.
 
                                                          Page 3 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 Student, route and announcement endpoints
 
@@ -177,7 +182,7 @@ Admin endpoints
 All require the admin role. Deletes are soft (an active flag) so history keeps names.
 
                                                                                   Page 4 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 Method and path              Request                      Notes
 GET/POST /admin/buses ,
@@ -227,7 +232,7 @@ GET/PUT /admin/settings                                   trip replay
                                                           value 500
 
                                                                           Page 5 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 WebSocket protocol and error codes
 
@@ -274,7 +279,7 @@ HTTP Code                                                          Meaning
 400  OTP_INVALID , OTP_EXPIRED
 
                                                                                         Page 6 of 7
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
 HTTP Code                                       Meaning
                                                 Sign in again

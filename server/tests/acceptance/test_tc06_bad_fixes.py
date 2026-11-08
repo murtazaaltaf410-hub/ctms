@@ -11,8 +11,16 @@ from tests.acceptance.sim_support import assert_server_verdicts, live_bus, plan
 
 async def test_tc6_bad_accuracy_and_speed_spikes_rejected_last_good_kept(client, con, live_app, sim_trip):
     route, driver, trip, player = await sim_trip()
-    fixes, events = plan(route.geom, player.start, speed_kmh=30, fix_every_s=3, interval_s=3, minutes=3,
-                         bad_accuracy_every=5, spike_every=7)
+    fixes, events = plan(
+        route.geom,
+        player.start,
+        speed_kmh=30,
+        fix_every_s=3,
+        interval_s=3,
+        minutes=3,
+        bad_accuracy_every=5,
+        spike_every=7,
+    )
     last_good = {}
 
     async def check(upload):
@@ -44,8 +52,16 @@ async def test_tc6_bad_accuracy_and_speed_spikes_rejected_last_good_kept(client,
 async def test_tc6_bad_fixes_inside_a_batch(client, live_app, sim_trip):
     """The same rules hold when good and bad fixes arrive together in one batch."""
     route, driver, trip, player = await sim_trip()
-    fixes, events = plan(route.geom, player.start, speed_kmh=40, fix_every_s=2, interval_s=10, minutes=2,
-                         bad_accuracy_every=3, spike_every=4)
+    fixes, events = plan(
+        route.geom,
+        player.start,
+        speed_kmh=40,
+        fix_every_s=2,
+        interval_s=10,
+        minutes=2,
+        bad_accuracy_every=3,
+        spike_every=4,
+    )
     uploads = await player.play(events)
     assert all(len(u.batch.fixes) > 1 for u in uploads[1:])
     assert_server_verdicts(uploads)

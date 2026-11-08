@@ -15,14 +15,14 @@ def ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-async def test_tc18_three_trips_match_simulator_totals(client, live_app, admin, fake_clock, sim_trip, sim_route,
-                                                      start_trip):
+async def test_tc18_three_trips_match_simulator_totals(
+    client, live_app, admin, fake_clock, sim_trip, sim_route, start_trip
+):
     _, headers = await admin()
     loop = await sim_route()
-    drives = [   # (bus label, speed, extra faults) - two trips on Bus A, one on Bus B
+    drives = [  # (bus label, speed, extra faults) - two trips on Bus A, one on Bus B
         ("Bus A", 25, {}),
-        ("Bus B", 35, {"bad_accuracy_every": 6, "spike_every": 9, "duplicate_every": 5,
-                       "dropouts": [Dropout(60, 90)]}),
+        ("Bus B", 35, {"bad_accuracy_every": 6, "spike_every": 9, "duplicate_every": 5, "dropouts": [Dropout(60, 90)]}),
         ("Bus A", 18, {"minutes": 6}),
     ]
     expected: dict[str, dict] = {}
@@ -39,11 +39,16 @@ async def test_tc18_three_trips_match_simulator_totals(client, live_app, admin, 
         await player.play(events)
         end_t = events[-1].t
         summary = await player.end(end_t)
-        expected[trip["id"]] = {"label": label, "distance": fixes[-1].along_m, "duration": end_t,
-                                "started": player.start, "ended": player.at(end_t)}
+        expected[trip["id"]] = {
+            "label": label,
+            "distance": fixes[-1].along_m,
+            "duration": end_t,
+            "started": player.start,
+            "ended": player.at(end_t),
+        }
         assert within(summary["distance_m"], fixes[-1].along_m, 2)
         assert within(summary["duration_s"], end_t, 2)
-        fake_clock.advance(600)            # a break between trips
+        fake_clock.advance(600)  # a break between trips
 
     items = (await client.get("/api/v1/admin/trips", headers=headers)).json()["items"]
     assert {t["id"] for t in items} == set(expected)

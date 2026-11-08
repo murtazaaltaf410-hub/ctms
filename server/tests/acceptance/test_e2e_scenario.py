@@ -24,8 +24,9 @@ from tests.conftest import bearer
 STOP_NAMES = ["Main Gate", "Library", "Science Block", "Hostel", "Sports Ground"]
 
 
-async def test_e2e_route_to_report(client, con, live_app, fake_clock, admin, fake_routes, push, driver_login,
-                                   google_login):
+async def test_e2e_route_to_report(
+    client, con, live_app, fake_clock, admin, fake_routes, push, driver_login, google_login
+):
     # 1. Admin: route (Routes API faked), bus with that default route, driver linked to the bus.
     _, adm = await admin()
     stops = [{"name": n, "lat": lat, "lng": lng} for n, (lat, lng) in zip(STOP_NAMES, L_ROUTE, strict=True)]
@@ -33,12 +34,16 @@ async def test_e2e_route_to_report(client, con, live_app, fake_clock, admin, fak
     assert resp.status_code == 201, resp.text
     route = resp.json()
     assert route["status"] == "active" and route["polyline"] and len(fake_routes.calls) == 1
-    bus = await client.post("/api/v1/admin/buses", json={"label": "Bus 7", "plate": "JK01E2E7",
-                                                         "default_route_id": route["id"]}, headers=adm)
+    bus = await client.post(
+        "/api/v1/admin/buses",
+        json={"label": "Bus 7", "plate": "JK01E2E7", "default_route_id": route["id"]},
+        headers=adm,
+    )
     assert bus.status_code == 201, bus.text
     bus_id = bus.json()["id"]
-    drv = await client.post("/api/v1/admin/drivers", json={"name": "E2E Driver", "phone": "+919877700001",
-                                                           "bus_id": bus_id}, headers=adm)
+    drv = await client.post(
+        "/api/v1/admin/drivers", json={"name": "E2E Driver", "phone": "+919877700001", "bus_id": bus_id}, headers=adm
+    )
     assert drv.status_code == 201 and drv.json()["bus_id"] == bus_id, drv.text
 
     # 2. Student waiting at "Hostel" with alerts on, app open (live socket).
@@ -59,8 +64,14 @@ async def test_e2e_route_to_report(client, con, live_app, fake_clock, admin, fak
     public = (await client.get(f"/api/v1/routes/{route['id']}", headers=student.headers)).json()
     geom = Route(decode_polyline(public["polyline"]))
     player = SimPlayer(client, fake_clock, bearer(tokens["access_token"]), trip["id"], fake_clock.current)
-    fixes, events = plan(geom, player.start, speed_kmh=30, fix_every_s=3, interval_s=10,
-                         statuses=[StatusChange(120, "delayed", "Traffic at the gate")])
+    fixes, events = plan(
+        geom,
+        player.start,
+        speed_kmh=30,
+        fix_every_s=3,
+        interval_s=10,
+        statuses=[StatusChange(120, "delayed", "Traffic at the gate")],
+    )
     etas: list[dict] = []
 
     async def after(upload):

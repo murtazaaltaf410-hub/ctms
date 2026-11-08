@@ -11,11 +11,11 @@ from tests.acceptance.sim_support import live_bus, plan, within
 
 
 async def restart(app, *, rebuild: bool) -> None:
-    await get_writer(app).flush(app)          # shutdown flush
-    app.state.live = None                     # all in-memory state is lost
+    await get_writer(app).flush(app)  # shutdown flush
+    app.state.live = None  # all in-memory state is lost
     app.state.live_writer = None
     if rebuild:
-        await rebuild_live(app)               # startup hook
+        await rebuild_live(app)  # startup hook
 
 
 async def test_tc19_restart_mid_trip_recovers_within_one_fix(client, con, live_app, sim_trip, google_login):
@@ -31,13 +31,13 @@ async def test_tc19_restart_mid_trip_recovers_within_one_fix(client, con, live_a
     after = await live_bus(client, student, trip["bus_id"])
     assert (after["lat"], after["lng"]) == (before["lat"], before["lng"])
 
-    [first] = await player.play(events[half:half + 1])
+    [first] = await player.play(events[half : half + 1])
     assert first.status_code == 200 and not first.rejected
     bus = await live_bus(client, student, trip["bus_id"])
     newest = events[half].item.fixes[-1]
     assert (bus["lat"], bus["lng"]) == (round(newest.lat, 7), round(newest.lng, 7)) and bus["state"] == "live"
 
-    await player.play(events[half + 1:])
+    await player.play(events[half + 1 :])
     assert await con.fetchval("select ended_at from public.trips where id = $1", UUID(trip["id"])) is None
     summary = await player.end(events[-1].t)
     assert within(summary["distance_m"], fixes[-1].along_m, 2)

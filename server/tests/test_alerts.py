@@ -56,8 +56,7 @@ async def test_tc13_approach_600_500_400_sends_exactly_one_alert(app, con, engin
     assert msg.title == "Bus nearby"
     assert msg.body == "Bus 2 (North Campus route) is about 400 m away"
     assert msg.tag == ALERT_TAG
-    assert msg.data == {"type": ALERT_TAG, "trip_id": str(trip.trip_id), "bus_id": str(trip.bus_id),
-                        "bus_count": "1"}
+    assert msg.data == {"type": ALERT_TAG, "trip_id": str(trip.trip_id), "bus_id": str(trip.bus_id), "bus_count": "1"}
 
 
 async def test_alert_radius_comes_from_settings_table(app, con, engine, push, world, student, fake_clock):
@@ -110,8 +109,9 @@ async def test_a4_two_buses_within_a_minute_give_one_combined_alert(app, con, en
     await app.state.push.drain(app)
     assert [m.title for m in push.sent] == ["Bus nearby", "2 buses are nearby"]
     combined = push.sent[1]
-    assert combined.body == ("Bus 2 (North Campus route) is about 400 m away; "
-                             "Bus 3 (Hazratbal route) is about 400 m away")
+    assert combined.body == (
+        "Bus 2 (North Campus route) is about 400 m away; Bus 3 (Hazratbal route) is about 400 m away"
+    )
     # Same notification tag: the combined push replaces the first one on the device.
     assert {m.tag for m in push.sent} == {ALERT_TAG}
     assert combined.data["bus_count"] == "2"
@@ -211,12 +211,15 @@ async def test_u2_deleting_account_stops_alerts(app, con, client, engine, push, 
     trip = await world()
     body = await google_login(sub="p4-u2", email="p4-u2@uok.edu.in")
     sid, auth = body["user"]["id"], bearer(body["access_token"])
-    assert (await client.put("/api/v1/me/push-token", json={"token": "tok-u2", "platform": "android"},
-                             headers=auth)).status_code == 204
+    assert (
+        await client.put("/api/v1/me/push-token", json={"token": "tok-u2", "platform": "android"}, headers=auth)
+    ).status_code == 204
     assert (await client.put("/api/v1/me/alert-settings", json={"enabled": True}, headers=auth)).status_code == 200
-    resp = await client.post("/api/v1/me/location", headers=auth,
-                             json={"lat": 34.1310, "lng": 74.8370, "accuracy": 15,
-                                   "recorded_at": clock.now().isoformat()})
+    resp = await client.post(
+        "/api/v1/me/location",
+        headers=auth,
+        json={"lat": 34.1310, "lng": 74.8370, "accuracy": 15, "recorded_at": clock.now().isoformat()},
+    )
     assert resp.status_code == 204
     await approach(app, engine, fake_clock, trip, [600, 500])
     assert engine.state.keys_for(student_id=UUID(sid))
@@ -226,13 +229,18 @@ async def test_u2_deleting_account_stops_alerts(app, con, client, engine, push, 
     assert await approach(app, engine, fake_clock, trip, [400, 300]) == [[], []]
     await app.state.push.drain(app)
     assert push.attempts == []
-    for table, col in (("student_locations", "user_id"), ("alert_settings", "user_id"),
-                       ("alert_log", "student_id"), ("push_tokens", "user_id")):
+    for table, col in (
+        ("student_locations", "user_id"),
+        ("alert_settings", "user_id"),
+        ("alert_log", "student_id"),
+        ("push_tokens", "user_id"),
+    ):
         assert await con.fetchval(f"select count(*) from public.{table} where {col} = $1::uuid", sid) == 0
 
 
-async def test_u2_push_queued_before_deletion_is_not_delivered(app, con, client, engine, push, world, student,
-                                                               fake_clock):
+async def test_u2_push_queued_before_deletion_is_not_delivered(
+    app, con, client, engine, push, world, student, fake_clock
+):
     trip = await world()
     sid = await student()
     await approach(app, engine, fake_clock, trip, [600, 400])
@@ -250,17 +258,18 @@ async def test_student_moving_location_is_used(app, con, engine, push, world, st
     assert await approach(app, engine, fake_clock, trip, [450, 400]) == [[], [sid]]
 
 
-async def test_a5_location_goes_stale_on_the_app_clock(app, con, client, engine, push, world, google_login,
-                                                       fake_clock):
+async def test_a5_location_goes_stale_on_the_app_clock(app, con, client, engine, push, world, google_login, fake_clock):
     """A location posted through the API stops counting once the clock passes 5 minutes."""
     trip = await world()
     body = await google_login(sub="p4-stale", email="p4-stale@uok.edu.in")
     auth = bearer(body["access_token"])
     await client.put("/api/v1/me/push-token", json={"token": "tok-stale", "platform": "android"}, headers=auth)
     await client.put("/api/v1/me/alert-settings", json={"enabled": True}, headers=auth)
-    resp = await client.post("/api/v1/me/location", headers=auth,
-                             json={"lat": 34.1310, "lng": 74.8370, "accuracy": 15,
-                                   "recorded_at": clock.now().isoformat()})
+    resp = await client.post(
+        "/api/v1/me/location",
+        headers=auth,
+        json={"lat": 34.1310, "lng": 74.8370, "accuracy": 15, "recorded_at": clock.now().isoformat()},
+    )
     assert resp.status_code == 204
     fake_clock.advance(301)
     assert await approach(app, engine, fake_clock, trip, [600, 400]) == [[], []]

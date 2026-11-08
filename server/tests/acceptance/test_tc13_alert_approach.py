@@ -17,9 +17,9 @@ def alerted_distance(body: str) -> int:
 
 async def test_tc13_600_500_400_gives_one_alert(client, con, live_app, push, sim_trip, sim_route, google_login):
     """The literal test plan case: fixes at 600, 500 and 400 m from the student, then onwards."""
-    straight = await sim_route([(34.1200, 74.8300), (34.1380, 74.8300)], [0.0, 1000.0, None])   # ~2 km north
+    straight = await sim_route([(34.1200, 74.8300), (34.1380, 74.8300)], [0.0, 1000.0, None])  # ~2 km north
     route, driver, trip, player = await sim_trip(route=straight)
-    s = await alert_student(client, google_login, 1, *route.stop_point(1))   # standing at the 1000 m stop
+    s = await alert_student(client, google_login, 1, *route.stop_point(1))  # standing at the 1000 m stop
     # 60 km/h with a fix and an upload every 6 s: one fix per 100 m, so the bus reports at 600, 500, 400 m ...
     _fixes, events = plan(route.geom, player.start, speed_kmh=60, fix_every_s=6, interval_s=6)
     distances, alerts_after = [], []
@@ -31,9 +31,9 @@ async def test_tc13_600_500_400_gives_one_alert(client, con, live_app, push, sim
 
     await player.play(events, after=after)
     i600, i500, i400 = (distances.index(d) for d in (600, 500, 400))
-    assert alerts_after[i600] == alerts_after[i500] == 0          # 500 m is not "within" 500 m
-    assert alerts_after[i400] == 1                                 # first fix inside the radius, getting closer
-    assert alerts_after[-1] == 1                                   # ... and never again on this trip
+    assert alerts_after[i600] == alerts_after[i500] == 0  # 500 m is not "within" 500 m
+    assert alerts_after[i400] == 1  # first fix inside the radius, getting closer
+    assert alerts_after[-1] == 1  # ... and never again on this trip
     [msg] = push.sent
     assert msg.token == s.push_token and msg.title == "Bus nearby"
     assert alerted_distance(msg.body) == 400 and msg.body.startswith(driver.get("label", "Bus"))
@@ -42,10 +42,11 @@ async def test_tc13_600_500_400_gives_one_alert(client, con, live_app, push, sim
     assert [a["trip_id"] for a in inapp] == [trip["id"]]
 
 
-async def test_tc13_realistic_approach_on_a_road_alerts_once_near_500m(client, con, live_app, push, sim_trip,
-                                                                      google_login):
+async def test_tc13_realistic_approach_on_a_road_alerts_once_near_500m(
+    client, con, live_app, push, sim_trip, google_login
+):
     route, _driver, _trip, player = await sim_trip()
-    stop = route.stop_point(3)                                     # 2250 m along, on the east leg
+    stop = route.stop_point(3)  # 2250 m along, on the east leg
     waiting = await alert_student(client, google_login, 2, *stop)
     far = await alert_student(client, google_login, 3, *offset(*stop, north_m=2500))
     off = await alert_student(client, google_login, 4, *stop, enabled=False)
@@ -61,8 +62,10 @@ async def test_tc13_realistic_approach_on_a_road_alerts_once_near_500m(client, c
     # Steps are ~83 m (30 km/h, 10 s uploads), so the alert lands in the last step before 500 m.
     assert 400 <= alerted_distance(sent[0].body) <= 500
     assert not [m for m in push.sent if m.token in (far.push_token, off.push_token)]
-    counts = {r["student_id"]: r["n"] for r in await con.fetch(
-        "select student_id, count(*) as n from public.alert_log group by student_id")}
+    counts = {
+        r["student_id"]: r["n"]
+        for r in await con.fetch("select student_id, count(*) as n from public.alert_log group by student_id")
+    }
     assert counts.get(waiting.id) == 1 and far.id not in counts and off.id not in counts
 
 

@@ -46,39 +46,65 @@ def admin(con: asyncpg.Connection, google_login) -> Callable:
     return login
 
 
-async def insert_route(con: asyncpg.Connection, points: Sequence[tuple[float, float]] = CAMPUS, *,
-                       name: str = "Route T") -> UUID:
+async def insert_route(
+    con: asyncpg.Connection, points: Sequence[tuple[float, float]] = CAMPUS, *, name: str = "Route T"
+) -> UUID:
     """An active route whose stops are `points` (polyline = straight lines between them)."""
     cum = cumulative_distances(points)
     route_id = await con.fetchval(
         """insert into public.routes (name, polyline, cum_dist_m, length_m, status)
            values ($1, $2, $3, $4, 'active') returning id""",
-        name, encode_polyline(points), cum, cum[-1],
+        name,
+        encode_polyline(points),
+        cum,
+        cum[-1],
     )
     for seq, ((lat, lng), dist) in enumerate(zip(points, cum, strict=True), start=1):
         await con.execute(
             """insert into public.stops (route_id, name, lat, lng, sequence, dist_along_m)
                values ($1, $2, $3, $4, $5, $6)""",
-            route_id, f"Stop {seq}", lat, lng, seq, dist,
+            route_id,
+            f"Stop {seq}",
+            lat,
+            lng,
+            seq,
+            dist,
         )
     return route_id
 
 
-async def insert_trip(con: asyncpg.Connection, *, bus_id: UUID, driver_id: UUID, route_id: UUID,
-                      started_at: datetime, ended_at: datetime | None = None, closed_by: str | None = None,
-                      distance_m: float = 0, last_fix_at: datetime | None = None) -> UUID:
+async def insert_trip(
+    con: asyncpg.Connection,
+    *,
+    bus_id: UUID,
+    driver_id: UUID,
+    route_id: UUID,
+    started_at: datetime,
+    ended_at: datetime | None = None,
+    closed_by: str | None = None,
+    distance_m: float = 0,
+    last_fix_at: datetime | None = None,
+) -> UUID:
     if ended_at is not None and closed_by is None:
         closed_by = "driver"
     return await con.fetchval(
         """insert into public.trips (bus_id, driver_id, route_id, type, started_at, ended_at, closed_by,
                                      distance_m, last_fix_at)
            values ($1, $2, $3, 'ad_hoc', $4, $5, $6, $7, $8) returning id""",
-        bus_id, driver_id, route_id, started_at, ended_at, closed_by, distance_m, last_fix_at,
+        bus_id,
+        driver_id,
+        route_id,
+        started_at,
+        ended_at,
+        closed_by,
+        distance_m,
+        last_fix_at,
     )
 
 
-async def insert_path(con: asyncpg.Connection, trip_id: UUID, points: Sequence[tuple[float, float]],
-                      start: datetime, step_s: float = 5) -> list[datetime]:
+async def insert_path(
+    con: asyncpg.Connection, trip_id: UUID, points: Sequence[tuple[float, float]], start: datetime, step_s: float = 5
+) -> list[datetime]:
     times = []
     for i, (lat, lng) in enumerate(points):
         at = start + timedelta(seconds=i * step_s)
@@ -86,6 +112,10 @@ async def insert_path(con: asyncpg.Connection, trip_id: UUID, points: Sequence[t
         await con.execute(
             """insert into public.locations (trip_id, fix_id, lat, lng, accuracy_m, speed_mps, heading, recorded_at)
                values ($1, $2, $3, $4, 8, 6, 45, $5)""",
-            trip_id, uuid4(), lat, lng, at,
+            trip_id,
+            uuid4(),
+            lat,
+            lng,
+            at,
         )
     return times

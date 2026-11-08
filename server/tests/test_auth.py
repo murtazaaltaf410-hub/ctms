@@ -22,6 +22,7 @@ def err(resp) -> str:
 
 # --- Google sign-in (TC1, U1) ------------------------------------------------------
 
+
 async def test_tc1_google_sign_in_university_and_personal_accounts(client, google_login, con):
     uni = await google_login("sub-uni", "Asha@UoK.edu.in", "Asha")
     personal = await google_login("sub-gmail", "asha.k@gmail.com", "Asha K")
@@ -52,8 +53,8 @@ async def test_admin_from_allowlist_and_demotion_logged(client, google_login, co
     tokens = await google_login("sub-boss", "boss@uok.edu.in")
     assert tokens["user"]["role"] == "student"
     meta = await con.fetchval(
-        "select meta from public.audit_log where action = 'user.role_change' and target_id = $1",
-        tokens["user"]["id"])
+        "select meta from public.audit_log where action = 'user.role_change' and target_id = $1", tokens["user"]["id"]
+    )
     assert meta == {"from": "admin", "to": "student", "reason": "admin_allowlist"}
 
 
@@ -68,7 +69,40 @@ async def test_inactive_google_user_rejected(client, google, create_user):
     assert resp.status_code == 401 and err(resp) == "TOKEN_INVALID"
 
 
+# --- Firebase email/password sign-in -------------------------------------------------
+
+
+async def test_firebase_email_creates_and_links_verified_student(client, firebase_login, google_login, con):
+    first = await firebase_login("firebase-asha", "Asha@uok.edu.in", "Asha")
+    assert first["user"]["role"] == "student"
+    assert first["user"]["email"] == "asha@uok.edu.in"
+    assert (
+        await con.fetchval("select firebase_uid from public.users where id = $1", first["user"]["id"])
+        == "firebase-asha"
+    )
+
+    # A verified Google identity for the same email links to the existing CTMS user.
+    linked = await google_login("google-asha", "asha@uok.edu.in", "Asha")
+    assert linked["user"]["id"] == first["user"]["id"]
+
+
+async def test_firebase_email_rejects_unverified_and_driver_accounts(client, firebase, create_user):
+    unverified = await client.post(
+        "/api/v1/auth/firebase",
+        json={"id_token": firebase.token("firebase-unverified", "nope@uok.edu.in", email_verified=False)},
+    )
+    assert unverified.status_code == 401 and err(unverified) == "TOKEN_INVALID"
+
+    await create_user("driver", email="driver@uok.edu.in", phone=DRIVER_PHONE)
+    driver = await client.post(
+        "/api/v1/auth/firebase",
+        json={"id_token": firebase.token("firebase-driver", "driver@uok.edu.in")},
+    )
+    assert driver.status_code == 403 and err(driver) == "FORBIDDEN_ROLE"
+
+
 # --- Phone OTP (TC2, U3, U4) --------------------------------------------------------
+
 
 async def test_tc2_unregistered_phone_gets_identical_response(client, create_user, otp_codes):
     await create_user("driver", phone=DRIVER_PHONE)
@@ -101,18 +135,19 @@ async def test_wrong_code_then_attempt_limit(client, create_user, otp_codes):
     for _ in range(5):  # otp_max_attempts = 5 (seed)
         resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": wrong})
         assert resp.status_code == 400 and err(resp) == "OTP_INVALID"
-    resp = await client.post("/api/v1/auth/phone/verify",
-                             json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
+    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
     assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"
 
 
 async def test_u4_code_expires_after_ttl(client, create_user, otp_codes, con):
     await create_user("driver", phone=DRIVER_PHONE)
     await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})
-    await con.execute("update public.phone_otp_requests set requested_at = requested_at - interval '6 minutes', "
-                      "expires_at = expires_at - interval '6 minutes' where phone = $1", DRIVER_PHONE)
-    resp = await client.post("/api/v1/auth/phone/verify",
-                             json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
+    await con.execute(
+        "update public.phone_otp_requests set requested_at = requested_at - interval '6 minutes', "
+        "expires_at = expires_at - interval '6 minutes' where phone = $1",
+        DRIVER_PHONE,
+    )
+    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
     assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"
 
 
@@ -149,8 +184,7 @@ async def test_u4_resend_limit_per_phone(client, create_user, con):
 @pytest.mark.parametrize("config_overrides", [{"rate_otp_request_per_ip": 2}])
 async def test_otp_request_per_ip_limit(client):
     for n in range(2):
-        assert (await client.post("/api/v1/auth/phone/request",
-                                  json={"phone": f"+91911111111{n}"})).status_code == 202
+        assert (await client.post("/api/v1/auth/phone/request", json={"phone": f"+91911111111{n}"})).status_code == 202
     resp = await client.post("/api/v1/auth/phone/request", json={"phone": "+919111111119"})
     assert resp.status_code == 429 and "Retry-After" in resp.headers
 
@@ -169,6 +203,7 @@ async def test_u3_deactivated_driver_signed_out_and_number_reissued(client, crea
 
 
 # --- Sessions (TC3 / T11) -----------------------------------------------------------
+
 
 async def test_tc3_second_phone_replaces_first_session(client, create_user, driver_login):
     await create_user("driver", phone=DRIVER_PHONE)
@@ -190,6 +225,7 @@ async def test_students_may_have_several_sessions(client, google_login):
 
 # --- Access tokens: expired vs invalid ------------------------------------------------
 
+
 async def test_missing_garbage_and_wrong_secret_are_token_invalid(client, google_login):
     tokens = await google_login()
     claims = jwt.decode(tokens["access_token"], options={"verify_signature": False})
@@ -203,22 +239,34 @@ async def test_missing_garbage_and_wrong_secret_are_token_invalid(client, google
 async def test_expired_access_token_is_token_expired(client, google_login, config):
     tokens = await google_login()
     claims = jwt.decode(tokens["access_token"], options={"verify_signature": False})
-    old = create_access_token(user_id=claims["sub"], session_id=claims["sid"], role="student",
-                              secret=config.jwt_secret, ttl_s=900,
-                              now=datetime.now(UTC) - timedelta(minutes=20))
+    old = create_access_token(
+        user_id=claims["sub"],
+        session_id=claims["sid"],
+        role="student",
+        secret=config.jwt_secret,
+        ttl_s=900,
+        now=datetime.now(UTC) - timedelta(minutes=20),
+    )
     resp = await client.get("/api/v1/me", headers=bearer(old))
     assert resp.status_code == 401 and err(resp) == "TOKEN_EXPIRED"
 
 
 async def test_token_for_unknown_session_is_invalid(client, google_login, config):
     tokens = await google_login()
-    tok = create_access_token(user_id=tokens["user"]["id"], session_id=uuid4(), role="student",
-                              secret=config.jwt_secret, ttl_s=900, now=datetime.now(UTC))
+    tok = create_access_token(
+        user_id=tokens["user"]["id"],
+        session_id=uuid4(),
+        role="student",
+        secret=config.jwt_secret,
+        ttl_s=900,
+        now=datetime.now(UTC),
+    )
     resp = await client.get("/api/v1/me", headers=bearer(tok))
     assert resp.status_code == 401 and err(resp) == "TOKEN_INVALID"
 
 
 # --- Refresh rotation and reuse detection ---------------------------------------------
+
 
 async def test_refresh_rotates_and_detects_reuse(client, google_login, con):
     tokens = await google_login()
@@ -251,6 +299,7 @@ async def test_refresh_malformed_and_expired(client, google_login, con):
 
 # --- Logout ------------------------------------------------------------------------------
 
+
 async def test_logout_revokes_session_and_removes_push_token(client, google_login, con):
     tokens = await google_login()
     headers = bearer(tokens["access_token"])
@@ -266,16 +315,19 @@ async def test_logout_revokes_session_and_removes_push_token(client, google_logi
 async def test_logout_with_push_token_removes_only_that_one(client, google_login, con):
     a = await google_login()
     b = await google_login()
-    await client.put("/api/v1/me/push-token", json={"token": "fcm-a", "platform": "android"},
-                     headers=bearer(a["access_token"]))
-    await client.put("/api/v1/me/push-token", json={"token": "fcm-b", "platform": "ios"},
-                     headers=bearer(b["access_token"]))
+    await client.put(
+        "/api/v1/me/push-token", json={"token": "fcm-a", "platform": "android"}, headers=bearer(a["access_token"])
+    )
+    await client.put(
+        "/api/v1/me/push-token", json={"token": "fcm-b", "platform": "ios"}, headers=bearer(b["access_token"])
+    )
     resp = await client.post("/api/v1/auth/logout", json={"push_token": "fcm-a"}, headers=bearer(a["access_token"]))
     assert resp.status_code == 204
     assert [r["token"] for r in await con.fetch("select token from public.push_tokens")] == ["fcm-b"]
 
 
 # --- Firebase provider (ADR-1 behind ADR-7) ------------------------------------------------
+
 
 def firebase_app(app, claims_or_exc):
     async def verifier(token: str) -> dict:
@@ -296,8 +348,7 @@ async def test_firebase_provider_paths(app, client, create_user, con):
     assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"  # no /request in the last 5 min
 
     assert (await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})).status_code == 202
-    row = await con.fetchrow("select provider, code_hash from public.phone_otp_requests where phone = $1",
-                             DRIVER_PHONE)
+    row = await con.fetchrow("select provider, code_hash from public.phone_otp_requests where phone = $1", DRIVER_PHONE)
     assert row["provider"] == "firebase" and row["code_hash"] is None
     resp = await client.post("/api/v1/auth/phone/verify", json=body)
     assert resp.status_code == 200 and resp.json()["user"]["role"] == "driver"

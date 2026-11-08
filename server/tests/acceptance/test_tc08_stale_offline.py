@@ -6,8 +6,7 @@ from __future__ import annotations
 from tests.acceptance.sim_support import live_bus, plan, stop_eta
 
 
-async def test_tc8_stale_at_30s_offline_at_2min_then_live_again(client, live_app, fake_clock, sim_trip,
-                                                               google_login):
+async def test_tc8_stale_at_30s_offline_at_2min_then_live_again(client, live_app, fake_clock, sim_trip, google_login):
     route, _driver, trip, player = await sim_trip()
     student = {"Authorization": f"Bearer {(await google_login())['access_token']}"}
     _fixes, events = plan(route.geom, player.start, speed_kmh=20, minutes=8, interval_s=5)
@@ -23,7 +22,7 @@ async def test_tc8_stale_at_30s_offline_at_2min_then_live_again(client, live_app
         player.move_clock(last + silent_s)
         bus = await live_bus(client, student, trip["bus_id"])
         assert bus["state"] == state, (silent_s, bus)
-        assert bus["last_fix_at"] == seen_at          # "last seen" stays the time of the last fix
+        assert bus["last_fix_at"] == seen_at  # "last seen" stays the time of the last fix
         eta = await stop_eta(client, student, route.stops[-1])
         assert [e["state"] for e in eta["etas"]] == [state]
     # The bus stays listed while its trip is active (shown as offline, not hidden) ...
@@ -38,9 +37,10 @@ async def test_tc8_freshness_uses_server_time_not_phone_time(client, live_app, s
     """A buffered upload of old fixes counts as fresh from when it arrives (T13)."""
     route, driver, trip, player = await sim_trip()
     _, events = plan(route.geom, player.start, speed_kmh=30, minutes=1, interval_s=60)
-    player.move_clock(100)       # the first minute of fixes arrives 40 s after the newest was recorded
-    resp = await client.post(f"/api/v1/trips/{trip['id']}/locations", json=events[1].item.payload,
-                             headers=driver["headers"])
+    player.move_clock(100)  # the first minute of fixes arrives 40 s after the newest was recorded
+    resp = await client.post(
+        f"/api/v1/trips/{trip['id']}/locations", json=events[1].item.payload, headers=driver["headers"]
+    )
     assert resp.status_code == 200 and not resp.json()["rejected"]
     bus = await live_bus(client, driver["headers"], trip["bus_id"])
     assert bus["state"] == "live"

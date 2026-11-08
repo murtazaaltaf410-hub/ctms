@@ -175,6 +175,10 @@ context7 has no index for the Routes API. The searches tried were "Google Maps R
 - Android auto-retrieval: `verificationCompleted` (Android only); `resendToken` is null on iOS.
 - Error codes to map: `invalid-verification-code` → OTP_INVALID; `session-expired` → OTP_EXPIRED; `too-many-requests` → RATE_LIMITED. **UNCONFIRMED** code strings: confirm in P7.
 
+### firebase_auth (email/password, additive auth option)
+- `FirebaseAuth.instance.createUserWithEmailAndPassword(email:, password:)` creates the Firebase account; call `user.sendEmailVerification()` and then sign out. Passwords never reach CTMS FastAPI. Source: firebase.google.com/docs/auth/flutter/password-auth
+- `FirebaseAuth.instance.signInWithEmailAndPassword(email:, password:)`, then `user.reload()`, `currentUser.emailVerified`, and `user.getIdToken()` produce the verified Firebase ID token for `POST /auth/firebase`. Source: firebase.google.com/docs/auth/flutter/password-auth and firebase.google.com/docs/auth/admin/verify-id-tokens
+
 ### google_maps_flutter — ctx7: `/websites/pub_dev_google_maps_flutter`
 | API | Usage | Source |
 |---|---|---|

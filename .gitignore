@@ -21,6 +21,9 @@ graphify-out/
 
 # Claude Code / agent tooling (local only: skills, agents, commands, helpers, MCP config)
 .claude/
+.agents/
+agent/
+skills-lock.json
 .mcp.json
 CLAUDE.local.md
 
@@ -41,6 +44,7 @@ app/.flutter-plugins
 app/.flutter-plugins-dependencies
 app/android/local.properties
 app/android/app/google-services.json
+app/android/app/src/*/google-services.json
 app/ios/Runner/GoogleService-Info.plist
 
 # Firebase / Google credentials

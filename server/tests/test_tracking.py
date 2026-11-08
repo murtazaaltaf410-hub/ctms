@@ -66,15 +66,18 @@ async def test_tc6_bad_accuracy_and_speed_rejected_last_good_kept(client, con, l
     body = await post_fixes(driver, trip_ctx["id"], [good, inaccurate, jump])
     assert body["accepted"] == [good["fix_id"]]
     assert {(r["fix_id"], r["reason"]) for r in body["rejected"]} == {
-        (inaccurate["fix_id"], "ACCURACY_TOO_LOW"), (jump["fix_id"], "SPEED_IMPLAUSIBLE")}
+        (inaccurate["fix_id"], "ACCURACY_TOO_LOW"),
+        (jump["fix_id"], "SPEED_IMPLAUSIBLE"),
+    }
     [bus] = await live_buses(client, driver)
     assert (bus["lat"], bus["lng"]) == (good["lat"], good["lng"])
     # T4: the next consistent fix is accepted.
     nxt = along_fix(180, t0 + timedelta(seconds=12))
     assert (await post_fixes(driver, trip_ctx["id"], [nxt]))["accepted"] == [nxt["fix_id"]]
     await get_writer(live_app).flush(live_app)
-    reasons = await con.fetch("select reason from public.rejected_fixes where trip_id = $1 order by reason",
-                              trip_ctx["id"])
+    reasons = await con.fetch(
+        "select reason from public.rejected_fixes where trip_id = $1 order by reason", trip_ctx["id"]
+    )
     assert [r["reason"] for r in reasons] == ["ACCURACY_TOO_LOW", "SPEED_IMPLAUSIBLE"]
     assert await con.fetchval("select count(*) from public.locations where trip_id = $1", trip_ctx["id"]) == 2
 
@@ -87,15 +90,14 @@ async def test_tc7_same_fix_id_twice_stored_once(client, con, live_app, trip_ctx
     retry = await post_fixes(driver, trip_ctx["id"], [f1])
     assert retry == {"accepted": [], "rejected": [{"fix_id": f1["fix_id"], "reason": "DUPLICATE"}]}
     await get_writer(live_app).flush(live_app)
-    get_live(live_app).by_trip(UUID(trip_ctx["id"])).seen_fix_ids.clear()   # force the DB check
+    get_live(live_app).by_trip(UUID(trip_ctx["id"])).seen_fix_ids.clear()  # force the DB check
     again = await post_fixes(driver, trip_ctx["id"], [f1, f1])
     assert [r["reason"] for r in again["rejected"]] == ["DUPLICATE", "DUPLICATE"]
     await get_writer(live_app).flush(live_app)
     assert await con.fetchval("select count(*) from public.locations where fix_id = $1", f1["fix_id"]) == 1
 
 
-async def test_t6_t12_buffered_and_late_fixes_fill_history_only(client, con, live_app, trip_ctx, post_fixes,
-                                                               hook_log):
+async def test_t6_t12_buffered_and_late_fixes_fill_history_only(client, con, live_app, trip_ctx, post_fixes, hook_log):
     t0, driver = trip_ctx["t0"], trip_ctx["driver"]
     # Buffered upload sent out of order: the newest fix wins the map, all are stored.
     batch = [along_fix(10 * i, t0 + timedelta(seconds=2 * i)) for i in range(6)]
@@ -103,13 +105,13 @@ async def test_t6_t12_buffered_and_late_fixes_fill_history_only(client, con, liv
     assert sorted(body["accepted"]) == sorted(f["fix_id"] for f in batch)
     [bus] = await live_buses(client, driver)
     assert bus["lat"] == batch[-1]["lat"] and bus["recorded_at"] == batch[-1]["recorded_at"]
-    assert len(hook_log["fix"]) == 1   # one live update per batch
+    assert len(hook_log["fix"]) == 1  # one live update per batch
     # T12: a late fix (older than the live one) is accepted for history but not shown live.
     late = along_fix(25, t0 + timedelta(seconds=5))
     assert (await post_fixes(driver, trip_ctx["id"], [late]))["accepted"] == [late["fix_id"]]
     [bus] = await live_buses(client, driver)
     assert bus["lat"] == batch[-1]["lat"]
-    assert len(hook_log["fix"]) == 1   # no emit for a late fix
+    assert len(hook_log["fix"]) == 1  # no emit for a late fix
     await get_writer(live_app).flush(live_app)
     assert await con.fetchval("select count(*) from public.locations where trip_id = $1", trip_ctx["id"]) == 7
 
@@ -123,8 +125,9 @@ async def test_out_of_order_before_trip_start_rejected(client, live_app, trip_ct
     assert body["rejected"] == [{"fix_id": old["fix_id"], "reason": "OUT_OF_ORDER"}]
 
 
-async def test_t13_phone_clock_ahead_is_flagged_and_server_time_used(client, live_app, trip_ctx, post_fixes,
-                                                                     fake_clock):
+async def test_t13_phone_clock_ahead_is_flagged_and_server_time_used(
+    client, live_app, trip_ctx, post_fixes, fake_clock
+):
     t0, driver = trip_ctx["t0"], trip_ctx["driver"]
     ahead = along_fix(0, t0 + timedelta(minutes=10))
     await post_fixes(driver, trip_ctx["id"], [ahead])
@@ -157,12 +160,13 @@ async def test_t14_parked_with_fixes_is_stopped_not_offline(client, live_app, tr
 
 async def test_ema_speed_smooths_noise(client, live_app, trip_ctx, post_fixes):
     t0, driver = trip_ctx["t0"], trip_ctx["driver"]
-    fixes = [along_fix(40 * i, t0 + timedelta(seconds=4 * i), speed=s)
-             for i, s in enumerate([10, 10, 10, 10, 30, 10, 10])]
+    fixes = [
+        along_fix(40 * i, t0 + timedelta(seconds=4 * i), speed=s) for i, s in enumerate([10, 10, 10, 10, 30, 10, 10])
+    ]
     for f in fixes:
         await post_fixes(driver, trip_ctx["id"], [f])
     bus = get_live(live_app).by_trip(UUID(trip_ctx["id"]))
-    assert 10 < bus.ema_speed_mps < 15   # one 30 m/s spike is damped
+    assert 10 < bus.ema_speed_mps < 15  # one 30 m/s spike is damped
 
 
 async def test_batch_limits_and_validation(client, live_app, trip_ctx, post_fixes):
@@ -179,8 +183,9 @@ async def test_batch_limits_and_validation(client, live_app, trip_ctx, post_fixe
 
 async def test_unknown_trip_and_missing_token(client, live_app, trip_ctx, post_fixes):
     t0 = trip_ctx["t0"]
-    resp = await client.post(f"/api/v1/trips/{uuid4()}/locations", json={"fixes": [along_fix(0, t0)]},
-                             headers=trip_ctx["driver"]["headers"])
+    resp = await client.post(
+        f"/api/v1/trips/{uuid4()}/locations", json={"fixes": [along_fix(0, t0)]}, headers=trip_ctx["driver"]["headers"]
+    )
     assert resp.status_code == 404
     resp = await client.post(f"/api/v1/trips/{trip_ctx['id']}/locations", json={"fixes": [along_fix(0, t0)]})
     assert resp.status_code == 401
@@ -206,16 +211,18 @@ async def test_n5_db_down_live_continues_and_writes_queue(client, con, live_app,
     assert get_live(live_app).by_trip(UUID(trip_ctx["id"])).lat == f3["lat"]
     writer = get_writer(live_app)
     assert await writer.flush(live_app) == 0 and writer.last_error is not None
-    assert writer.pending >= 3   # f1..f3 still queued (plus progress)
+    assert writer.pending >= 3  # f1..f3 still queued (plus progress)
     # Another driver's trip cannot be written through the offline path.
-    other_trip_fix = await client.post(f"/api/v1/trips/{uuid4()}/locations", json={"fixes": [along_fix(0, t0)]},
-                                       headers=driver["headers"])
+    other_trip_fix = await client.post(
+        f"/api/v1/trips/{uuid4()}/locations", json={"fixes": [along_fix(0, t0)]}, headers=driver["headers"]
+    )
     assert other_trip_fix.status_code == 503
     # DB back: the queue drains in one flush.
     live_app.state.live_conn_provider = working
     assert await writer.flush(live_app) > 0 and writer.pending == 0
-    stored = await con.fetch("select fix_id from public.locations where trip_id = $1 order by recorded_at",
-                             trip_ctx["id"])
+    stored = await con.fetch(
+        "select fix_id from public.locations where trip_id = $1 order by recorded_at", trip_ctx["id"]
+    )
     assert [str(r["fix_id"]) for r in stored] == [f1["fix_id"], f2["fix_id"], f3["fix_id"]]
     assert await con.fetchval("select last_fix_at is not null from public.trips where id = $1", trip_ctx["id"])
 
@@ -234,7 +241,7 @@ async def test_n5_writer_queue_is_bounded(live_app):
 async def test_n5_revoked_session_refused_while_db_down(client, live_app, trip_ctx, post_fixes, driver_login):
     t0, driver = trip_ctx["t0"], trip_ctx["driver"]
     await post_fixes(driver, trip_ctx["id"], [along_fix(0, t0)])
-    await driver_login(driver["phone"])   # second device: first session revoked (SESSIONS_REVOKED)
+    await driver_login(driver["phone"])  # second device: first session revoked (SESSIONS_REVOKED)
 
     @asynccontextmanager
     async def db_down():
@@ -242,8 +249,11 @@ async def test_n5_revoked_session_refused_while_db_down(client, live_app, trip_c
         yield  # pragma: no cover
 
     live_app.state.live_conn_provider = db_down
-    resp = await client.post(f"/api/v1/trips/{trip_ctx['id']}/locations",
-                             json={"fixes": [along_fix(10, t0 + timedelta(seconds=2))]}, headers=driver["headers"])
+    resp = await client.post(
+        f"/api/v1/trips/{trip_ctx['id']}/locations",
+        json={"fixes": [along_fix(10, t0 + timedelta(seconds=2))]},
+        headers=driver["headers"],
+    )
     assert resp.status_code == 401
 
 
@@ -251,7 +261,7 @@ async def test_downsampling_keeps_live_but_thins_history(client, con, live_app, 
     await con.execute("update public.settings set value = '10' where key = 'history_downsample_s'")
     await live_app.state.settings_store.refresh(con)
     t0, driver = trip_ctx["t0"], trip_ctx["driver"]
-    for i in range(6):   # every 4 s for 20 s -> stored at 0 and 12 s only
+    for i in range(6):  # every 4 s for 20 s -> stored at 0 and 12 s only
         await post_fixes(driver, trip_ctx["id"], [along_fix(30 * i, t0 + timedelta(seconds=4 * i))])
     await get_writer(live_app).flush(live_app)
     assert await con.fetchval("select count(*) from public.locations where trip_id = $1", trip_ctx["id"]) == 2

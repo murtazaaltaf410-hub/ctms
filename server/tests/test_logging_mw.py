@@ -14,27 +14,33 @@ from app.logging_mw import REDACTED, JsonFormatter, RedactingFormatter, configur
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXNpZ25hdHVyZQ"
 
 
-@pytest.mark.parametrize("text", [
-    "fix lat=34.12345 lng=74.83456 accepted",
-    '{"lat": 34.12345, "lng": 74.83456}',
-    "{'latitude': 34.1, 'longitude': 74.8}",
-    "student at 34.123456, 74.834567",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "fix lat=34.12345 lng=74.83456 accepted",
+        '{"lat": 34.12345, "lng": 74.83456}',
+        "{'latitude': 34.1, 'longitude': 74.8}",
+        "student at 34.123456, 74.834567",
+    ],
+)
 def test_redacts_coordinates(text):
     out = redact(text)
     assert "34.1" not in out and "74.8" not in out
     assert REDACTED in out
 
 
-@pytest.mark.parametrize("text, secret", [
-    (f"Authorization: Bearer {JWT}", JWT),
-    (f"got token {JWT}", JWT),
-    ("refresh_token=0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
-    ("0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
-    ('{"otp": "123456"}', "123456"),
-    ("push_token=fcm-abc-def-123", "fcm-abc-def-123"),
-    ("X-Goog-Api-Key: AIzaSyDUMMYKEY", "AIzaSyDUMMYKEY"),
-])
+@pytest.mark.parametrize(
+    "text, secret",
+    [
+        (f"Authorization: Bearer {JWT}", JWT),
+        (f"got token {JWT}", JWT),
+        ("refresh_token=0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
+        ("0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
+        ('{"otp": "123456"}', "123456"),
+        ("push_token=fcm-abc-def-123", "fcm-abc-def-123"),
+        ("X-Goog-Api-Key: AIzaSyDUMMYKEY", "AIzaSyDUMMYKEY"),
+    ],
+)
 def test_redacts_tokens_and_codes(text, secret):
     assert secret not in redact(text)
 
@@ -45,20 +51,21 @@ def test_keeps_harmless_text():
 
 
 def _record(msg: str, *args, exc: BaseException | None = None, **extra) -> logging.LogRecord:
-    record = logging.makeLogRecord({"name": "ctms.test", "levelno": logging.INFO, "levelname": "INFO",
-                                    "msg": msg, "args": args, **extra})
+    record = logging.makeLogRecord(
+        {"name": "ctms.test", "levelno": logging.INFO, "levelname": "INFO", "msg": msg, "args": args, **extra}
+    )
     if exc is not None:
         try:
             raise exc
         except type(exc):
             import sys
+
             record.exc_info = sys.exc_info()
     return record
 
 
 def test_json_formatter_redacts_message_args_extra_and_traceback():
-    record = _record("bad fix lat=%s", 34.12345, exc=ValueError("lng=74.83456"), path="/api/v1/x",
-                     note=f"Bearer {JWT}")
+    record = _record("bad fix lat=%s", 34.12345, exc=ValueError("lng=74.83456"), path="/api/v1/x", note=f"Bearer {JWT}")
     entry = json.loads(JsonFormatter().format(record))
     assert entry["level"] == "INFO" and entry["logger"] == "ctms.test"
     assert entry["ts"].endswith("Z")
@@ -90,8 +97,7 @@ def test_configure_logging_is_idempotent_and_keeps_foreign_handlers():
 
 async def test_request_line_has_no_query_string_and_request_id(client, caplog):
     caplog.set_level(logging.INFO, logger="ctms.request")
-    resp = await client.get("/api/v1/config?lat=34.12345&lng=74.83456",
-                            headers={"X-Request-ID": "abc-123"})
+    resp = await client.get("/api/v1/config?lat=34.12345&lng=74.83456", headers={"X-Request-ID": "abc-123"})
     assert resp.status_code == 200
     assert resp.headers["x-request-id"] == "abc-123"
     lines = [r for r in caplog.records if r.name == "ctms.request"]
@@ -119,6 +125,13 @@ async def test_health_is_logged_at_debug(client, caplog):
 def test_console_otp_refused_outside_dev(env):
     """The console OTP provider logs codes by design, so it must never run in staging/prod."""
     with pytest.raises(ValidationError, match="OTP_PROVIDER=console is for development only"):
-        Settings(_env_file=None, app_env=env, otp_provider="console", jwt_secret="x" * 40,
-                 database_url="postgresql://u:p@db:5432/ctms", google_oauth_client_ids=["id"],
-                 fcm_credentials="{}", google_directions_key="k")
+        Settings(
+            _env_file=None,
+            app_env=env,
+            otp_provider="console",
+            jwt_secret="x" * 40,
+            database_url="postgresql://u:p@db:5432/ctms",
+            google_oauth_client_ids=["id"],
+            fcm_credentials="{}",
+            google_directions_key="k",
+        )

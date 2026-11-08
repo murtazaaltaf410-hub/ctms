@@ -15,8 +15,9 @@ async def stored(con, trip_id: str) -> int:
 
 async def test_tc7_duplicate_fix_ids_are_stored_once(client, con, live_app, sim_trip):
     route, _driver, trip, player = await sim_trip()
-    fixes, events = plan(route.geom, player.start, speed_kmh=30, fix_every_s=3, interval_s=6, minutes=2,
-                         duplicate_every=4)
+    fixes, events = plan(
+        route.geom, player.start, speed_kmh=30, fix_every_s=3, interval_s=6, minutes=2, duplicate_every=4
+    )
     uploads = await player.play(events)
     assert_server_verdicts(uploads)
     dupes = [f for f in fixes if f.kind == "duplicate"]
@@ -34,7 +35,7 @@ async def test_tc7_retried_batches_are_ignored(client, con, live_app, sim_trip):
         player.move_clock(ev.t)
         first = await client.post(url, json=ev.item.payload, headers=driver["headers"])
         assert first.status_code == 200 and not first.json()["rejected"]
-        if n % 2:   # half the retries hit fixes already written to the DB, half still in the write queue
+        if n % 2:  # half the retries hit fixes already written to the DB, half still in the write queue
             await get_writer(live_app).flush(live_app)
         retry = await client.post(url, json=ev.item.payload, headers=driver["headers"])
         assert retry.status_code == 200 and retry.json()["accepted"] == []
@@ -43,5 +44,6 @@ async def test_tc7_retried_batches_are_ignored(client, con, live_app, sim_trip):
     await get_writer(live_app).flush(live_app)
     assert await stored(con, trip["id"]) == len(fixes)
     dup_rows = await con.fetchval(
-        "select count(*) from public.rejected_fixes where trip_id = $1 and reason = 'DUPLICATE'", UUID(trip["id"]))
+        "select count(*) from public.rejected_fixes where trip_id = $1 and reason = 'DUPLICATE'", UUID(trip["id"])
+    )
     assert dup_rows == len(fixes)

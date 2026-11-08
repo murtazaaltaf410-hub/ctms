@@ -21,7 +21,7 @@ async def test_tc5_second_start_is_409_and_the_trip_can_be_resumed(client, live_
     assert active["id"] == trip["id"]
     rest = await player.play(events[3:])
     assert all(u.status_code == 200 and not u.rejected for u in rest)
-    assert len(await live_buses(client, driver["headers"])) == 1          # still one bus, one trip
+    assert len(await live_buses(client, driver["headers"])) == 1  # still one bus, one trip
 
     # End it, then a new trip starts normally.
     await player.end()
@@ -36,8 +36,10 @@ async def test_tc5_bus_in_use_by_another_driver_is_409(client, con, live_app, si
     await create_user("driver", name="Substitute", phone="+919833300001")
     sub = await driver_login("+919833300001")
     # Link check: one driver per bus, so relink the bus to the substitute (U8) and try to start.
-    await con.execute("update public.buses set driver_id = (select id from public.users where phone = $1) "
-                      "where id = $2::uuid", "+919833300001", trip["bus_id"])
-    resp = await client.post("/api/v1/trips/start", json={},
-                             headers={"Authorization": f"Bearer {sub['access_token']}"})
+    await con.execute(
+        "update public.buses set driver_id = (select id from public.users where phone = $1) where id = $2::uuid",
+        "+919833300001",
+        trip["bus_id"],
+    )
+    resp = await client.post("/api/v1/trips/start", json={}, headers={"Authorization": f"Bearer {sub['access_token']}"})
     assert resp.status_code == 409 and resp.json()["error"]["code"] == "TRIP_ALREADY_ACTIVE"

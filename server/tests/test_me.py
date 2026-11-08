@@ -32,8 +32,9 @@ async def test_push_token_upsert_moves_between_accounts(client, google_login, co
     assert (await client.put("/api/v1/me/push-token", json=body, headers=bearer(b["access_token"]))).status_code == 204
     rows = await con.fetch("select user_id::text as u from public.push_tokens where token = 'fcm-shared'")
     assert [r["u"] for r in rows] == [b["user"]["id"]]
-    resp = await client.put("/api/v1/me/push-token", json={"token": "t", "platform": "web"},
-                            headers=bearer(a["access_token"]))
+    resp = await client.put(
+        "/api/v1/me/push-token", json={"token": "t", "platform": "web"}, headers=bearer(a["access_token"])
+    )
     assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR"
 
 
@@ -53,27 +54,43 @@ async def test_tc20_delete_student_removes_personal_data(client, google_login, c
     await client.put("/api/v1/me/consents", json={"kind": "student_location", "version": "1"}, headers=headers)
     # Alert-mode data (owned by P4) inserted directly: latest location, alert setting, one alert sent.
     now = datetime.now(UTC)
-    await con.execute("insert into public.student_locations (user_id, lat, lng, accuracy_m, recorded_at) "
-                      "values ($1, 34.13, 74.84, 10, $2)", uid, now)
+    await con.execute(
+        "insert into public.student_locations (user_id, lat, lng, accuracy_m, recorded_at) "
+        "values ($1, 34.13, 74.84, 10, $2)",
+        uid,
+        now,
+    )
     await con.execute("insert into public.alert_settings (user_id, enabled) values ($1, true)", uid)
     driver = await create_user("driver", phone="+919000000009")
     bus = await create_bus(driver)
     route = await con.fetchval("insert into public.routes (name) values ('R') returning id")
-    trip = await con.fetchval("insert into public.trips (bus_id, driver_id, route_id, type) "
-                              "values ($1, $2, $3, 'ad_hoc') returning id", bus, driver, route)
+    trip = await con.fetchval(
+        "insert into public.trips (bus_id, driver_id, route_id, type) values ($1, $2, $3, 'ad_hoc') returning id",
+        bus,
+        driver,
+        route,
+    )
     await con.execute("insert into public.alert_log (student_id, trip_id) values ($1, $2)", uid, trip)
-    await con.execute("insert into public.audit_log (actor_id, action, meta) values ($1, 'x', '{\"name\": \"L\"}')",
-                      uid)
+    await con.execute(
+        "insert into public.audit_log (actor_id, action, meta) values ($1, 'x', '{\"name\": \"L\"}')", uid
+    )
 
     resp = await client.delete("/api/v1/me", headers=headers)
     assert resp.status_code == 204
 
-    for table, col in (("users", "id"), ("sessions", "user_id"), ("push_tokens", "user_id"),
-                       ("consents", "user_id"), ("student_locations", "user_id"),
-                       ("alert_settings", "user_id"), ("alert_log", "student_id")):
+    for table, col in (
+        ("users", "id"),
+        ("sessions", "user_id"),
+        ("push_tokens", "user_id"),
+        ("consents", "user_id"),
+        ("student_locations", "user_id"),
+        ("alert_settings", "user_id"),
+        ("alert_log", "student_id"),
+    ):
         assert await con.fetchval(f"select count(*) from public.{table} where {col} = $1", uid) == 0, table
-    metas = await con.fetch("select meta from public.audit_log where actor_id is null and "
-                            "(action = 'x' or target_id = $1)", uid)
+    metas = await con.fetch(
+        "select meta from public.audit_log where actor_id is null and (action = 'x' or target_id = $1)", uid
+    )
     assert metas and all(r["meta"] == {} for r in metas)
     resp = await client.get("/api/v1/me", headers=headers)
     assert resp.status_code == 401 and err(resp) == "TOKEN_INVALID"

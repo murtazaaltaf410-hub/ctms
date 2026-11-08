@@ -21,8 +21,9 @@ async def test_tc9_three_minute_dropout_backfills_in_order_and_live_jumps(client
     route, driver, trip, player = await sim_trip()
     ws = FakeWS(live_app)
     get_hub(live_app).add(ws, UUID(int=1), UUID(int=2))
-    fixes, events = plan(route.geom, player.start, speed_kmh=25, fix_every_s=3, interval_s=5, minutes=6,
-                         dropouts=[Dropout(60, 180)])
+    fixes, events = plan(
+        route.geom, player.start, speed_kmh=25, fix_every_s=3, interval_s=5, minutes=6, dropouts=[Dropout(60, 180)]
+    )
     states = []
 
     async def watch(upload):
@@ -44,19 +45,21 @@ async def test_tc9_three_minute_dropout_backfills_in_order_and_live_jumps(client
     assert {u.t for u in catch_up} == {240}
     # One bus_position per request, each for that batch's newest fix (the map jumps forward).
     positions = [m for m in ws.sent if m["type"] == "bus_position"]
-    assert [m["recorded_at"] for m in positions[:len(catch_up)]] == \
-        [u.batch.fixes[-1].payload()["recorded_at"] for u in catch_up]
+    assert [m["recorded_at"] for m in positions[: len(catch_up)]] == [
+        u.batch.fixes[-1].payload()["recorded_at"] for u in catch_up
+    ]
     newest_backlog = catch_up[-1].batch.fixes[-1]
 
     bus = await live_bus(client, driver["headers"], trip["bus_id"])
     assert bus["state"] == "live"
-    assert bus["recorded_at"] == fixes[-1].payload()["recorded_at"]   # live = the newest fix overall
+    assert bus["recorded_at"] == fixes[-1].payload()["recorded_at"]  # live = the newest fix overall
     assert newest_backlog.t <= 240
 
     # History is complete and in recorded order, including the offline period.
     await get_writer(live_app).flush(live_app)
-    rows = await con.fetch("select fix_id, recorded_at from public.locations where trip_id = $1 order by id",
-                           UUID(trip["id"]))
+    rows = await con.fetch(
+        "select fix_id, recorded_at from public.locations where trip_id = $1 order by id", UUID(trip["id"])
+    )
     assert [r["fix_id"] for r in rows] == [f.fix_id for f in fixes]
     assert all(a["recorded_at"] < b["recorded_at"] for a, b in itertools.pairwise(rows))
     gap = [f for f in fixes if 55 < f.t <= 240]
@@ -67,8 +70,9 @@ async def test_tc9_three_minute_dropout_backfills_in_order_and_live_jumps(client
 async def test_tc9_backlog_arriving_out_of_order_is_history_only(client, con, live_app, sim_trip):
     """T12: if a newer fix got through first, the older buffered ones are stored but do not move the bus."""
     route, driver, trip, player = await sim_trip()
-    _fixes, events = plan(route.geom, player.start, speed_kmh=25, fix_every_s=3, interval_s=5, minutes=3,
-                         dropouts=[Dropout(30, 60)])
+    _fixes, events = plan(
+        route.geom, player.start, speed_kmh=25, fix_every_s=3, interval_s=5, minutes=3, dropouts=[Dropout(30, 60)]
+    )
     before = [e for e in events if e.t < 90]
     catch_up = [e for e in events if e.t == 90]
     await player.play(before)

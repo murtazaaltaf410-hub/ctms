@@ -14,13 +14,12 @@ async def test_tc3_second_phone_replaces_first_mid_trip(client, live_app, fake_c
     uploads = await player.play(events[:half])
     assert all(u.status_code == 200 for u in uploads)
 
-    second = await driver_login(driver["phone"])           # phone 2 signs in
+    second = await driver_login(driver["phone"])  # phone 2 signs in
     phone2 = SimPlayer(client, fake_clock, bearer(second["access_token"]), trip["id"], player.start)
 
     # Phone 1's next upload is refused with SESSION_REPLACED; nothing from it is stored.
     nxt = events[half]
-    resp = await client.post(f"/api/v1/trips/{trip['id']}/locations", json=nxt.item.payload,
-                             headers=driver["headers"])
+    resp = await client.post(f"/api/v1/trips/{trip['id']}/locations", json=nxt.item.payload, headers=driver["headers"])
     assert resp.status_code == 401 and resp.json()["error"]["code"] == "SESSION_REPLACED"
     for path in ("/api/v1/trips/active", "/api/v1/me"):
         r = await client.get(path, headers=driver["headers"])

@@ -37,12 +37,28 @@ async def three_trips(con, create_user, create_bus):
         points = (path + path[::-1][1:]) if laps == 2 else path
         distance = cumulative_distances(points)[-1]
         start = T0 + offset
-        tid = await insert_trip(con, bus_id=bus, driver_id=driver, route_id=rid, started_at=start,
-                                ended_at=start + duration, closed_by=closed_by, distance_m=distance,
-                                last_fix_at=start + duration)
+        tid = await insert_trip(
+            con,
+            bus_id=bus,
+            driver_id=driver,
+            route_id=rid,
+            started_at=start,
+            ended_at=start + duration,
+            closed_by=closed_by,
+            distance_m=distance,
+            last_fix_at=start + duration,
+        )
         await insert_path(con, tid, points, start)
-        trips.append({"id": tid, "bus": bus, "distance": distance, "duration": duration.total_seconds(),
-                      "closed_by": closed_by, "points": points})
+        trips.append(
+            {
+                "id": tid,
+                "bus": bus,
+                "distance": distance,
+                "duration": duration.total_seconds(),
+                "closed_by": closed_by,
+                "points": points,
+            }
+        )
     return {"route": rid, "buses": (b1, b2), "trips": trips, "length": length}
 
 
@@ -74,12 +90,14 @@ async def test_trip_filters_and_cursor(client, admin, three_trips):
     items = (await client.get("/api/v1/admin/trips", params=window, headers=headers)).json()["items"]
     assert [i["started_at"] for i in items] == ["2026-11-04T04:00:00Z"]
     page1 = (await client.get("/api/v1/admin/trips", params={"limit": 2}, headers=headers)).json()
-    page2 = (await client.get("/api/v1/admin/trips", params={"limit": 2, "cursor": page1["next_cursor"]},
-                              headers=headers)).json()
+    page2 = (
+        await client.get("/api/v1/admin/trips", params={"limit": 2, "cursor": page1["next_cursor"]}, headers=headers)
+    ).json()
     ids = [i["id"] for i in page1["items"] + page2["items"]]
     assert len(ids) == len(set(ids)) == 3 and page2["next_cursor"] is None
-    resp = await client.get("/api/v1/admin/trips", params={"from": "2026-11-05T00:00:00Z",
-                                                          "to": "2026-11-04T00:00:00Z"}, headers=headers)
+    resp = await client.get(
+        "/api/v1/admin/trips", params={"from": "2026-11-05T00:00:00Z", "to": "2026-11-04T00:00:00Z"}, headers=headers
+    )
     assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR"
 
 
@@ -87,9 +105,12 @@ async def test_trip_path_is_ordered(client, admin, con, three_trips):
     _, headers = await admin()
     trip = three_trips["trips"][0]
     # A late-arriving (out-of-order) fix is still replayed in recorded order.
-    await con.execute("""insert into public.locations (trip_id, fix_id, lat, lng, recorded_at)
+    await con.execute(
+        """insert into public.locations (trip_id, fix_id, lat, lng, recorded_at)
                          values ($1, gen_random_uuid(), 34.1255, 74.8345, $2)""",
-                      trip["id"], T0 - timedelta(seconds=5))
+        trip["id"],
+        T0 - timedelta(seconds=5),
+    )
     resp = await client.get(f"/api/v1/admin/trips/{trip['id']}/path", headers=headers)
     positions = resp.json()["positions"]
     assert resp.json()["trip_id"] == str(trip["id"])
@@ -103,8 +124,11 @@ async def test_trip_path_is_ordered(client, admin, con, three_trips):
 async def test_summary_totals_per_bus(client, admin, three_trips):
     _, headers = await admin()
     trips = three_trips["trips"]
-    resp = await client.get("/api/v1/admin/reports/summary",
-                            params={"from": "2026-11-04T00:00:00Z", "to": "2026-11-05T00:00:00Z"}, headers=headers)
+    resp = await client.get(
+        "/api/v1/admin/reports/summary",
+        params={"from": "2026-11-04T00:00:00Z", "to": "2026-11-05T00:00:00Z"},
+        headers=headers,
+    )
     body = resp.json()
     assert body["from"] == "2026-11-04T00:00:00Z" and body["to"] == "2026-11-05T00:00:00Z"
     bus1, bus2 = body["buses"]
@@ -113,8 +137,9 @@ async def test_summary_totals_per_bus(client, admin, three_trips):
     assert bus1["running_time_s"] == pytest.approx(12 * 60 + 25 * 60)
     assert body["totals"]["trips"] == 3
     assert body["totals"]["running_time_s"] == pytest.approx(47 * 60)
-    empty = (await client.get("/api/v1/admin/reports/summary", params={"from": "2027-01-01T00:00:00Z"},
-                              headers=headers)).json()
+    empty = (
+        await client.get("/api/v1/admin/reports/summary", params={"from": "2027-01-01T00:00:00Z"}, headers=headers)
+    ).json()
     assert empty["buses"] == [] and empty["totals"] == {"trips": 0, "distance_m": 0, "running_time_s": 0}
 
 
@@ -125,8 +150,21 @@ async def test_trip_report_csv_export(client, admin, con, three_trips):
     assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/csv")
     assert "attachment" in resp.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(resp.text)))
-    assert rows[0] == ["trip_id", "started_at", "ended_at", "bus_label", "driver_name", "route_name", "type",
-                       "status", "closed_by", "distance_m", "duration_s", "avg_speed_mps", "avg_speed_kmh"]
+    assert rows[0] == [
+        "trip_id",
+        "started_at",
+        "ended_at",
+        "bus_label",
+        "driver_name",
+        "route_name",
+        "type",
+        "status",
+        "closed_by",
+        "distance_m",
+        "duration_s",
+        "avg_speed_mps",
+        "avg_speed_kmh",
+    ]
     assert len(rows) == 4
     by_id = {str(t["id"]): t for t in three_trips["trips"]}
     for row in rows[1:]:
@@ -135,10 +173,9 @@ async def test_trip_report_csv_export(client, admin, con, three_trips):
         assert float(record["distance_m"]) == pytest.approx(sim["distance"], rel=0.02)
         assert float(record["duration_s"]) == pytest.approx(sim["duration"])
         assert float(record["avg_speed_kmh"]) == pytest.approx(float(record["avg_speed_mps"]) * 3.6, abs=0.1)
-    assert any(r[4] == "'=HYPERLINK(\"x\")" for r in rows[1:])  # formula neutralised
+    assert any(r[4] == '\'=HYPERLINK("x")' for r in rows[1:])  # formula neutralised
     b2 = three_trips["buses"][1]
-    filtered = (await client.get("/api/v1/admin/reports/trips.csv", params={"bus_id": str(b2)},
-                                 headers=headers)).text
+    filtered = (await client.get("/api/v1/admin/reports/trips.csv", params={"bus_id": str(b2)}, headers=headers)).text
     assert len(list(csv.reader(io.StringIO(filtered)))) == 2
 
 
@@ -148,8 +185,15 @@ async def test_active_trip_running_time_uses_last_fix(client, admin, con, create
     driver = await create_user("driver", name="D", phone="+919000000411")
     bus = await create_bus(driver)
     start = datetime.now(UTC) - timedelta(minutes=30)
-    await insert_trip(con, bus_id=bus, driver_id=driver, route_id=rid, started_at=start, distance_m=1200,
-                      last_fix_at=start + timedelta(minutes=10))
+    await insert_trip(
+        con,
+        bus_id=bus,
+        driver_id=driver,
+        route_id=rid,
+        started_at=start,
+        distance_m=1200,
+        last_fix_at=start + timedelta(minutes=10),
+    )
     item = (await client.get("/api/v1/admin/trips", headers=headers)).json()["items"][0]
     assert item["ended_at"] is None and item["closed_by"] is None
     assert item["duration_s"] == 600 and item["avg_speed"] == 2.0

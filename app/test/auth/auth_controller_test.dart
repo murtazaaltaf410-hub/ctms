@@ -1,4 +1,5 @@
 import 'package:ctms/auth/auth_controller.dart';
+import 'package:ctms/auth/email_password_auth.dart';
 import 'package:ctms/auth/google_auth.dart';
 import 'package:ctms/core/api/api_client.dart';
 import 'package:ctms/core/api/api_exception.dart';
@@ -15,22 +16,28 @@ import '../helpers.dart';
 
 class MockGoogle extends Mock implements GoogleIdTokenSource {}
 
+class MockEmailPassword extends Mock implements EmailPasswordAuthSource {}
+
 void main() {
   late FakeAdapter adapter;
   late TokenStore tokens;
   late MockGoogle google;
+  late MockEmailPassword emailPassword;
   late ProviderContainer container;
 
   setUp(() {
     adapter = FakeAdapter((_) => jsonBody(200, {}));
     tokens = TokenStore(MemoryKeyValueStore());
     google = MockGoogle();
+    emailPassword = MockEmailPassword();
     when(() => google.signOut()).thenAnswer((_) async {});
+    when(() => emailPassword.signOut()).thenAnswer((_) async {});
     container = ProviderContainer(
       overrides: [
         envProvider.overrideWithValue(testEnv),
         tokenStoreProvider.overrideWithValue(tokens),
         googleIdTokenSourceProvider.overrideWithValue(google),
+        emailPasswordAuthSourceProvider.overrideWithValue(emailPassword),
         apiClientProvider.overrideWith((ref) {
           return ApiClient(
             baseUrl: testEnv.apiBaseUrl,
@@ -112,6 +119,25 @@ void main() {
     expect(await controller().signInWithGoogle(), isFalse);
     expect(adapter.requests, isEmpty);
   });
+
+  test(
+    'email sign-in exchanges a Firebase ID token and stores the session',
+    () async {
+      when(() => emailPassword.signIn('asha@uok.edu.in', 'password'))
+          .thenAnswer((_) async => 'firebase-id');
+      adapter.handler = (_) => jsonBody(200, {
+        'access_token': 'a',
+        'refresh_token': 'r',
+        'user': userJson(),
+      });
+      await controller().signInWithEmailPassword('asha@uok.edu.in', 'password');
+      final req = adapter.requests.single;
+      expect(req.path, 'auth/firebase');
+      expect(req.data, {'id_token': 'firebase-id'});
+      expect(state().role, UserRole.student);
+      expect(await tokens.readRefreshToken(), 'r');
+    },
+  );
 
   Future<void> signIn() async {
     when(() => google.getIdToken()).thenAnswer((_) async => 'g');

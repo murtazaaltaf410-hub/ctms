@@ -45,8 +45,13 @@ async def test_start_with_explicit_route(client, live_app, driver_with_bus, make
     assert resp.status_code == 201 and resp.json()["route_id"] == str(other["id"])
 
 
-@pytest.mark.parametrize("change", ["update public.routes set status = 'draft' where id = $1",
-                                    "update public.routes set active = false where id = $1"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "update public.routes set status = 'draft' where id = $1",
+        "update public.routes set active = false where id = $1",
+    ],
+)
 async def test_start_refuses_draft_or_inactive_route(client, con, live_app, driver_with_bus, make_route, change):
     driver = await driver_with_bus()
     other = await make_route(name="Other")
@@ -71,7 +76,9 @@ async def test_scheduled_when_near_a_timetable_slot(client, con, live_app, drive
     local = (fake_clock.current + timedelta(minutes=5)).astimezone(ZoneInfo("Asia/Kolkata"))
     schedule_id = await con.fetchval(
         "insert into public.schedules (route_id, departure_time, days_of_week) values ($1, $2, $3) returning id",
-        driver["route"]["id"], time(local.hour, local.minute), [local.isoweekday()],
+        driver["route"]["id"],
+        time(local.hour, local.minute),
+        [local.isoweekday()],
     )
     trip = (await client.post("/api/v1/trips/start", json={}, headers=driver["headers"])).json()
     assert trip["type"] == "scheduled" and trip["schedule_id"] == str(schedule_id)
@@ -81,8 +88,12 @@ async def test_scheduled_when_near_a_timetable_slot(client, con, live_app, drive
 async def test_far_from_slot_is_ad_hoc(client, con, live_app, driver_with_bus, fake_clock):
     driver = await driver_with_bus()
     local = (fake_clock.current + timedelta(hours=3)).astimezone(ZoneInfo("Asia/Kolkata"))
-    await con.execute("insert into public.schedules (route_id, departure_time, days_of_week) values ($1, $2, $3)",
-                      driver["route"]["id"], time(local.hour, local.minute), [1, 2, 3, 4, 5, 6, 7])
+    await con.execute(
+        "insert into public.schedules (route_id, departure_time, days_of_week) values ($1, $2, $3)",
+        driver["route"]["id"],
+        time(local.hour, local.minute),
+        [1, 2, 3, 4, 5, 6, 7],
+    )
     resp = await client.post("/api/v1/trips/start", json={}, headers=driver["headers"])
     assert resp.json()["type"] == "ad_hoc"
 
@@ -103,7 +114,9 @@ async def test_tc5_concurrent_start_hits_unique_index(client, con, live_app, dri
     async def racing_classify(app, c, route_id, started_at):
         await con.execute(
             "insert into public.trips (bus_id, driver_id, route_id, type) values ($1, $2, $3, 'ad_hoc')",
-            driver["bus_id"], driver["driver_id"], route_id,
+            driver["bus_id"],
+            driver["driver_id"],
+            route_id,
         )
         return await real_classify(app, c, route_id, started_at)
 
@@ -126,8 +139,9 @@ async def test_status_update_broadcasts_and_validates(client, con, live_app, dri
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     ws = watch(live_app)
-    resp = await client.post(f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed", "note": "Traffic"},
-                             headers=driver["headers"])
+    resp = await client.post(
+        f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed", "note": "Traffic"}, headers=driver["headers"]
+    )
     assert resp.status_code == 204
     assert ws.sent == [{"type": "bus_status", "bus_id": trip["bus_id"], "status": "delayed", "note": "Traffic"}]
     assert hook_log["trip"][-1].kind == "status"
@@ -135,8 +149,9 @@ async def test_status_update_broadcasts_and_validates(client, con, live_app, dri
     assert (row["status"], row["note"]) == ("delayed", "Traffic")
     bad = await client.post(f"/api/v1/trips/{trip['id']}/status", json={"status": "late"}, headers=driver["headers"])
     assert bad.status_code == 400
-    long_note = await client.post(f"/api/v1/trips/{trip['id']}/status",
-                                  json={"status": "delayed", "note": "x" * 141}, headers=driver["headers"])
+    long_note = await client.post(
+        f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed", "note": "x" * 141}, headers=driver["headers"]
+    )
     assert long_note.status_code == 400 and long_note.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
@@ -152,12 +167,14 @@ async def test_not_your_trip_is_403(client, live_app, driver_with_bus, start_tri
 
 
 async def test_end_returns_summary_and_rejects_later_writes(
-        client, con, live_app, driver_with_bus, start_trip, post_fixes, fake_clock, hook_log):
+    client, con, live_app, driver_with_bus, start_trip, post_fixes, fake_clock, hook_log
+):
     driver = await driver_with_bus()
     trip = await start_trip(driver)
     t0 = fake_clock.current
-    await post_fixes(driver, trip["id"], [along_fix(100 * i, t0 + timedelta(seconds=10 * i), speed=10)
-                                         for i in range(5)])
+    await post_fixes(
+        driver, trip["id"], [along_fix(100 * i, t0 + timedelta(seconds=10 * i), speed=10) for i in range(5)]
+    )
     fake_clock.advance(60)
     ws = watch(live_app)
     resp = await client.post(f"/api/v1/trips/{trip['id']}/end", headers=driver["headers"])
@@ -174,8 +191,9 @@ async def test_end_returns_summary_and_rejects_later_writes(
     assert again.status_code == 200 and again.json()["ended_at"] == summary["ended_at"]
     late = await post_fixes(driver, trip["id"], [along_fix(500, fake_clock.current)], expect=404)
     assert late["error"]["code"] == "NOT_FOUND"
-    status = await client.post(f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed"},
-                               headers=driver["headers"])
+    status = await client.post(
+        f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed"}, headers=driver["headers"]
+    )
     assert status.status_code == 404
     # A new trip may start once the old one is closed.
     assert (await client.post("/api/v1/trips/start", json={}, headers=driver["headers"])).status_code == 201

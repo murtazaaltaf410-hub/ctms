@@ -54,7 +54,7 @@ def test_route_interpolation_and_heading():
 
 def test_drive_emits_timed_fixes_to_the_end_of_the_route():
     route = Route(L_ROUTE)
-    fixes = list(drive(route, DriveConfig(speed_kmh=36, fix_every_s=3), T0))   # 10 m/s
+    fixes = list(drive(route, DriveConfig(speed_kmh=36, fix_every_s=3), T0))  # 10 m/s
     assert fixes[0].t == 0 and fixes[0].recorded_at == T0 and fixes[0].along_m == 0
     assert all(b.t - a.t <= 3 + 1e-9 for a, b in itertools.pairwise(fixes))
     assert fixes[-1].along_m == pytest.approx(route.length_m)
@@ -80,13 +80,12 @@ def test_minutes_longer_than_the_route_parks_at_the_end():
 
 def test_faults_every_n_never_the_first_fix():
     route = Route(L_ROUTE)
-    cfg = DriveConfig(speed_kmh=30, fix_every_s=3, minutes=2, bad_accuracy_every=4, spike_every=5,
-                      duplicate_every=3)
+    cfg = DriveConfig(speed_kmh=30, fix_every_s=3, minutes=2, bad_accuracy_every=4, spike_every=5, duplicate_every=3)
     fixes = list(drive(route, cfg, T0))
     by_kind = {k: [f for f in fixes if f.kind == k] for k in ("good", "bad_accuracy", "spike", "duplicate")}
     assert fixes[0].kind == "good"
     assert all(f.seq % 5 == 0 for f in by_kind["spike"])
-    assert all(f.seq % 4 == 0 and f.seq % 5 for f in by_kind["bad_accuracy"])   # a spike wins a tie
+    assert all(f.seq % 4 == 0 and f.seq % 5 for f in by_kind["bad_accuracy"])  # a spike wins a tie
     assert all(f.accuracy == 80 and f.expected == "ACCURACY_TOO_LOW" for f in by_kind["bad_accuracy"])
     for spike in by_kind["spike"]:
         lat, lng, _ = route.at(spike.along_m)
@@ -115,9 +114,9 @@ def test_dropout_buffers_then_uploads_in_order_in_chunks():
     out = list(batches(fixes, interval_s=5, dropouts=[Dropout(60, 180)], batch_max=20))
     assert not [b for b in out if 60 <= b.send_t < 240]
     catch_up = [b for b in out if b.send_t == 240]
-    assert len(catch_up) == 4 and all(b.backlog for b in catch_up)        # fixes 57..240 s = 62 -> 20+20+20+2
+    assert len(catch_up) == 4 and all(b.backlog for b in catch_up)  # fixes 57..240 s = 62 -> 20+20+20+2
     assert [len(b.fixes) for b in catch_up] == [20, 20, 20, 2]
-    assert [f for b in out for f in b.fixes] == fixes                      # nothing lost or reordered
+    assert [f for b in out for f in b.fixes] == fixes  # nothing lost or reordered
     after = [b for b in out if b.send_t > 240]
     assert after and not any(b.backlog for b in after)
 
@@ -136,8 +135,21 @@ def test_cli_parsing_helpers():
     assert parse_mmss("01:30") == 90 and parse_mmss("75") == 75 and parse_mmss("1:00:05") == 3605
     assert parse_status("delayed@01:30") == StatusChange(90, "delayed", None)
     assert parse_status("breakdown@2:00@Flat tyre") == StatusChange(120, "breakdown", "Flat tyre")
-    args = build_parser().parse_args(["--phone", "+910000000001", "--dropout", "30:60", "--dropout", "300:30",
-                                      "--status", "delayed@00:45", "--no-end", "--time-scale", "10"])
+    args = build_parser().parse_args(
+        [
+            "--phone",
+            "+910000000001",
+            "--dropout",
+            "30:60",
+            "--dropout",
+            "300:30",
+            "--status",
+            "delayed@00:45",
+            "--no-end",
+            "--time-scale",
+            "10",
+        ]
+    )
     assert args.dropout == [Dropout(30, 60), Dropout(300, 30)] and args.end is False and args.time_scale == 10
     assert args.status == [StatusChange(45, "delayed", None)] and args.interval == 5 and args.fix_every == 3
     with pytest.raises(SystemExit):

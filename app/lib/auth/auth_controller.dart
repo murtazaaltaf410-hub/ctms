@@ -8,6 +8,7 @@ import '../core/auth/token_store.dart';
 import '../core/models/models.dart';
 import '../push/push_service.dart';
 import 'auth_repository.dart';
+import 'email_password_auth.dart';
 import 'google_auth.dart';
 import 'phone_otp.dart';
 
@@ -92,6 +93,16 @@ class AuthController extends Notifier<AuthState> {
     return true;
   }
 
+  Future<void> signInWithEmailPassword(String email, String password) async {
+    final idToken = await ref
+        .read(emailPasswordAuthSourceProvider)
+        .signIn(email, password);
+    await _accept(await _repo.signInWithFirebase(idToken));
+  }
+
+  Future<void> createEmailAccount(String email, String password) =>
+      ref.read(emailPasswordAuthSourceProvider).createAccount(email, password);
+
   /// Driver step 1. [phone] must be E.164 (see [normalisePhone]).
   Future<void> requestPhoneCode(String phone) =>
       ref.read(phoneOtpServiceProvider).requestCode(phone);
@@ -151,6 +162,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> _clearLocal() async {
     await ref.read(pushServiceProvider).onSignedOut();
     await ref.read(googleIdTokenSourceProvider).signOut();
+    await ref.read(emailPasswordAuthSourceProvider).signOut();
     await _tokens.clear();
   }
 }

@@ -44,7 +44,9 @@ async def test_request_shape_and_response_parsing():
     assert body["origin"] == {"location": {"latLng": {"latitude": 34.126, "longitude": 74.835}}}
     assert body["destination"] == {"location": {"latLng": {"latitude": 34.1315, "longitude": 74.8399}}}
     assert [w["location"]["latLng"] for w in body["intermediates"]] == [
-        {"latitude": 34.1278, "longitude": 74.8368}, {"latitude": 34.1295, "longitude": 74.8382}]
+        {"latitude": 34.1278, "longitude": 74.8368},
+        {"latitude": 34.1295, "longitude": 74.8382},
+    ]
     assert body["travelMode"] == "DRIVE" and body["routingPreference"] == "TRAFFIC_UNAWARE"
     assert body["polylineEncoding"] == "ENCODED_POLYLINE" and body["computeAlternativeRoutes"] is False
     assert "test-key" not in req.url.query.decode()  # key in a header, never in the URL
@@ -58,14 +60,21 @@ async def test_two_stops_send_no_intermediates():
     assert "intermediates" not in json.loads(seen[0].content)
 
 
-@pytest.mark.parametrize(("response", "reason"), [
-    (httpx.Response(403, json={"error": {"code": 403, "message": "API key not valid", "status": "PERMISSION_DENIED"}}),
-     "http_403"),
-    (httpx.Response(200, json={}), "no_route"),
-    (httpx.Response(200, json={"routes": []}), "no_route"),
-    (httpx.Response(200, json={"routes": [{"distanceMeters": 5}]}), "bad_response"),
-    (httpx.Response(200, text="not json"), "bad_response"),
-])
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        (
+            httpx.Response(
+                403, json={"error": {"code": 403, "message": "API key not valid", "status": "PERMISSION_DENIED"}}
+            ),
+            "http_403",
+        ),
+        (httpx.Response(200, json={}), "no_route"),
+        (httpx.Response(200, json={"routes": []}), "no_route"),
+        (httpx.Response(200, json={"routes": [{"distanceMeters": 5}]}), "bad_response"),
+        (httpx.Response(200, text="not json"), "bad_response"),
+    ],
+)
 async def test_failures_raise_routes_api_error(response, reason):
     client, _ = client_with(lambda r: response)
     with pytest.raises(RoutesApiError) as info:
