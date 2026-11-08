@@ -1,0 +1,43 @@
+# Local Postgres 16 for development and tests (stands in for Supabase).
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:55432/ctms        (dev, with demo data)
+#   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/ctms_test  (tests, no demo data)
+#
+# Host port 55432 avoids clashing with a locally installed Postgres (5432) and
+# the Supabase CLI (54322).
+#
+# The SQL files run only when the volume is EMPTY. After editing
+# supabase/migrations/*.sql, re-create it:
+#   docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d
+name: ctms-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres   # local only; never reuse for Supabase
+      POSTGRES_DB: ctms
+      TZ: UTC
+    ports:
+      - "55432:5432"
+    volumes:
+      - ctms_pgdata:/var/lib/postgresql/data
+      # Applied in file-name order to POSTGRES_DB (ctms) by the entrypoint.
+      - ./supabase/migrations/0001_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./supabase/migrations/0002_rls.sql:/docker-entrypoint-initdb.d/02_rls.sql:ro
+      - ./supabase/migrations/0003_seed.sql:/docker-entrypoint-initdb.d/03_seed.sql:ro
+      # Creates ctms_test and applies the same files (reads /ctms/migrations).
+      - ./supabase/docker/04_test_db.sql:/docker-entrypoint-initdb.d/04_test_db.sql:ro
+      - ./supabase/migrations:/ctms/migrations:ro
+    # -h 127.0.0.1: the temporary init-time server has no TCP listener, so this
+    # only passes once all init scripts have finished.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d ctms_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  ctms_pgdata:

@@ -1,0 +1,2 @@
+# psql meta-commands (\i, \connect) and shell scripts break on CRLF; keep LF.
+* text eol=lf
