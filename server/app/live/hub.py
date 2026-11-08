@@ -1,7 +1,7 @@
 """WebSocket broadcast hub.
 
     from app.live.hub import broadcast
-    await broadcast(app, {"type": "announcement", "data": {...}})
+    await broadcast(app, {"type": "announcement", "id": "...", "title": "...", "urgent": False})
 
 `broadcast` sends a JSON message to every authenticated `/api/v1/ws/live` client;
 a dead client is dropped and never fails the caller. The hub lives on

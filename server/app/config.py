@@ -103,6 +103,24 @@ class Settings(BaseSettings):
     otp_request_retention_s: int = 86400
     timezone: str = "Asia/Kolkata"
 
+    # --- Phase 3: trips, tracking, live state, ETA (not in the settings seed) ---
+    # A trip is "scheduled" if it starts within this many seconds of a timetable slot.
+    schedule_match_window_s: float = 900
+    # OUT_OF_ORDER: fix recorded more than this long before the trip started.
+    fix_before_start_grace_s: float = 120
+    # A stop counts as "passed" once the bus is this far beyond it along the route.
+    eta_passed_tolerance_m: float = 25
+    # Forward snapping prefers an earlier segment within this distance of the best.
+    snap_tie_tolerance_m: float = 25
+    # N5: max queued DB writes (locations + rejections) while the DB is down.
+    live_writer_queue_max: int = 50_000
+    # Per-bus memory of recent fix_ids for DUPLICATE detection without the DB.
+    live_seen_fix_ids_max: int = 5_000
+    trip_auto_close_check_s: float = 60
+    retention_interval_s: float = 60
+    # WS: close a client silent for this long (about three missed heartbeats).
+    ws_idle_timeout_s: float = 80
+
     # --- Phase 4: alerts + push (wiring; alert thresholds are the table keys above) ---
     # fcm | fake | log. None = log in dev/test, fcm elsewhere (fake/log refused outside dev).
     push_provider: Literal["fcm", "fake", "log"] | None = None

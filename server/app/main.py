@@ -21,6 +21,7 @@ from app.db import Conn, create_pool
 from app.errors import ERROR_CLASSES, install_error_handlers
 from app.jobs import start_jobs, stop_jobs
 from app.live import run_shutdown_hooks, run_startup_hooks
+from app.live.ws import register as register_live_ws
 from app.modules.auth.google import GoogleVerifier
 from app.otp import build_otp_provider
 from app.ratelimit import RateLimiter
@@ -78,6 +79,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
     init_state(app, config)
     install_error_handlers(app)
     app.include_router(api_router)
+    register_live_ws(app)  # Phase 3: /api/v1/ws/live (outside api_router, whose rate limit needs a Request)
 
     @app.get("/health", tags=["ops"])
     @app.get(f"{API_PREFIX}/health", tags=["ops"], include_in_schema=False)
