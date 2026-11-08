@@ -46,10 +46,11 @@ insert into public.settings (key, value) values
   ('student_move_report_m',       '100'),
   ('alert_rider_suppress_m',      '50'),
   ('alert_combine_window_s',      '60'),
-  -- Driver phone OTP (edge case U4, ADR-1)
-  ('otp_ttl_s',                   '300'),
-  ('otp_request_per_phone',       '3'),
-  ('otp_request_window_s',        '600'),
+  -- Driver phone OTP (edge case U4, ADR-7)
+  ('otp_ttl_seconds',             '300'),
+  ('otp_max_attempts',            '5'),
+  ('otp_max_sends_per_window',    '3'),
+  ('otp_window_seconds',          '600'),
   -- Retention (TRD p.4-5, runbook privacy table)
   ('location_retention_days',     '90'),
   ('student_location_ttl_s',      '300'),

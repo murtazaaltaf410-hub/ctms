@@ -111,19 +111,26 @@ comment on table public.sessions is
 comment on column public.sessions.revoked_reason is
   'Free text set by the server, e.g. logout | replaced | deactivated | rotated_reuse.';
 
--- ADR-1: Firebase Phone Auth sends the SMS. This table only tracks requests to
--- POST /auth/phone/request so the server can enforce 3 sends / 10 min per phone
--- (U4) and require a request within the last 5 minutes before verify.
+-- ADR-7 (supersedes ADR-1): pluggable OTP provider. Every POST
+-- /auth/phone/request inserts a row, so the server can enforce 3 sends / 10 min
+-- per phone (U4). Server-generated codes (console / SMS providers) store only a
+-- hash, an expiry and an attempt counter; with the Firebase provider those
+-- columns stay null and the row just proves a recent request.
 create table public.phone_otp_requests (
-  id          bigint generated always as identity primary key,
-  phone_e164  text not null check (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
-  ip          inet,
-  created_at  timestamptz not null default now()
+  id            bigint generated always as identity primary key,
+  phone         text not null check (phone ~ '^\+[1-9][0-9]{6,14}$'),
+  ip            inet,
+  requested_at  timestamptz not null default now(),
+  code_hash     text,
+  expires_at    timestamptz,
+  attempts      integer not null default 0 check (attempts >= 0),
+  consumed_at   timestamptz,
+  constraint phone_otp_requests_code_pair check ((code_hash is null) = (expires_at is null))
 );
-create index phone_otp_requests_phone_time_idx on public.phone_otp_requests (phone_e164, created_at desc);
-create index phone_otp_requests_created_idx on public.phone_otp_requests (created_at);
+create index phone_otp_requests_phone_time_idx on public.phone_otp_requests (phone, requested_at desc);
+create index phone_otp_requests_requested_idx on public.phone_otp_requests (requested_at);
 comment on table public.phone_otp_requests is
-  'Driver OTP request log (no codes stored; Firebase verifies the code). Retention: purge rows older than 1 day.';
+  'Driver OTP requests. code_hash = hash of a server-generated code (never the code); null with the Firebase provider. A code is usable while consumed_at is null, now() < expires_at and attempts < settings.otp_max_attempts. Retention: purge rows older than 1 day.';
 
 create table public.push_tokens (
   id          uuid primary key default gen_random_uuid(),

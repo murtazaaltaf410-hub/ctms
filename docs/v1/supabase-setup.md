@@ -83,7 +83,7 @@ Expected: every row shows `relrowsecurity = true`. In **Table Editor** each tabl
 **c) Settings and the first admin**
 
 ```sql
-select count(*) from public.settings;      -- expected: 29
+select count(*) from public.settings;      -- expected: 30
 select * from public.admin_allowlist;      -- expected: your email, in lower case
 select key, value from public.settings where key = 'alert_radius_m';  -- expected: 500
 ```
