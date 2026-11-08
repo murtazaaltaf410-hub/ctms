@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Illustrative ~3 km campus loop for the CTMS simulator (not a surveyed road). -->
+<gpx version="1.1" creator="ctms-simulator" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Campus loop</name>
+    <trkseg>
+      <trkpt lat="34.12600" lon="74.83500"/>
+      <trkpt lat="34.12780" lon="74.83680"/>
+      <trkpt lat="34.12950" lon="74.83820"/>
+      <trkpt lat="34.13150" lon="74.83990"/>
+      <trkpt lat="34.13320" lon="74.84250"/>
+      <trkpt lat="34.13250" lon="74.84600"/>
+      <trkpt lat="34.13000" lon="74.84750"/>
+      <trkpt lat="34.12720" lon="74.84600"/>
+      <trkpt lat="34.12550" lon="74.84250"/>
+      <trkpt lat="34.12500" lon="74.83850"/>
+      <trkpt lat="34.12600" lon="74.83500"/>
+    </trkseg>
+  </trk>
+</gpx>
