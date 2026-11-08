@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     alert_track_radius_factor: float = 2.0  # distances are tracked out to factor x alert_radius_m
     alert_rider_min_updates: int = 2     # A1: consecutive fixes within alert_rider_suppress_m = riding
 
+    # --- Phase 9: GET /api/v1/config (runbook: minimum supported app version) ------
+    # Also overridable per environment with a `min_app_version` row in the settings table.
+    min_app_version: str = "1.0.0"
+    app_update_url: str | None = None    # where an outdated build is sent (store / APK link)
+
     @property
     def resolved_push_provider(self) -> str:
         return self.push_provider or ("log" if self.is_dev else "fcm")

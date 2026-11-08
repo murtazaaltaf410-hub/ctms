@@ -1,6 +1,14 @@
-**/node_modules
-**/dist
+# Docker build context is the repo root (server/Dockerfile needs server/ and
+# supabase/migrations/). Allow-list only what the image uses; everything else
+# (legacy/, docs, PDFs, .git, local env files, venvs, caches) stays out.
+*
+!server/pyproject.toml
+!server/uv.lock
+!server/alembic.ini
+!server/app/
+!server/migrations/
+!supabase/migrations/
+**/__pycache__
+**/*.py[cod]
 **/.env
-.git
-backend
-*.zip
+**/.env.*

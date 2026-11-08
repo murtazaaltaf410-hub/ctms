@@ -1,0 +1,120 @@
+# CI for CTMS V1 (runbook: "merge to main only after the automated tests pass").
+#   server: ruff + pytest against Postgres 16 with supabase/migrations applied to ctms_test
+#   docker: builds the server image exactly as Railway does (repo-root context)
+#   app:    Flutter analyze/test/build (P7) - commented out until app/ exists
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server (ruff + pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      # conftest.py reads TEST_DATABASE_URL (same db layout as docker-compose.dev.yml's ctms_test).
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ctms_test
+      APP_ENV: test
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create ctms_test and apply supabase/migrations (mirrors supabase/docker/04_test_db.sql)
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database ctms_test"
+          psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/0001_schema.sql \
+            -f supabase/migrations/0002_rls.sql
+          # 0003 without the optional demo data, like the dev test db.
+          PGOPTIONS="-c ctms.seed_demo=off" \
+            psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 -f supabase/migrations/0003_seed.sql
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      - name: Install (locked)
+        working-directory: server
+        run: uv sync --locked
+
+      - name: Ruff
+        working-directory: server
+        run: uv run ruff check .
+
+      - name: Pytest
+        working-directory: server
+        run: uv run pytest -q
+
+      - name: Alembic upgrade on a fresh database (deploy path)
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ctms_alembic
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database ctms_alembic"
+          uv run alembic upgrade head
+          uv run alembic upgrade head   # second run is a no-op
+
+  docker:
+    name: Docker build (server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (repo-root context, as Railway builds it)
+        run: docker build -f server/Dockerfile -t ctms-server:ci .
+
+  # --- P7: enable once app/ (Flutter) exists ------------------------------------
+  # app:
+  #   name: App (flutter analyze + test + build apk)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   defaults:
+  #     run:
+  #       working-directory: app
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-java@v4
+  #       with:
+  #         distribution: temurin
+  #         java-version: "17"
+  #     - uses: subosito/flutter-action@v2
+  #       with:
+  #         channel: stable
+  #         cache: true
+  #     - run: flutter pub get
+  #     - run: flutter analyze
+  #     - run: flutter test
+  #     # google-services.json is gitignored: write it from a repository secret
+  #     # (base64 of the staging file) before building.
+  #     - name: google-services.json (staging)
+  #       run: echo "$GOOGLE_SERVICES_JSON_STAGING" | base64 -d > android/app/google-services.json
+  #       env:
+  #         GOOGLE_SERVICES_JSON_STAGING: ${{ secrets.GOOGLE_SERVICES_JSON_STAGING }}
+  #     - run: flutter build apk --flavor staging --debug --dart-define=API_BASE_URL=https://staging.example.invalid

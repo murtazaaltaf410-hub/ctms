@@ -1,0 +1,11 @@
+# Used only if someone builds with server/ as the context. The supported build is
+# from the repo root (see server/Dockerfile and the root .dockerignore), because
+# the image needs supabase/migrations/*.sql.
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+tests
