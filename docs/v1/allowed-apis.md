@@ -233,6 +233,21 @@ context7 has no index for the Routes API. The searches tried were "Google Maps R
 - v10 changed the Android cipher with auto-migration (`AndroidOptions(migrateOnAlgorithmChange: true)` default). ⚠ Anti-pattern: `AndroidOptions(encryptedSharedPreferences: true)` (v9-era option). **UNCONFIRMED** that it is removed, so don't use it.
 - Store **only the refresh token** here. The access token stays in memory (spec: short JWT).
 
+### Added by P7 (app foundation, 2026-11-08)
+
+| Package / API | Usage in `app/` | Source |
+|---|---|---|
+| **package_info_plus** (new) | `final info = await PackageInfo.fromPlatform(); info.version` → compared with `GET /config` `min_app_version` (runbook "Mobile apps" 3). Call only after `runApp`; on Android it throws if called earlier | ctx7 `/fluttercommunity/plus_plugins`, packages/package_info_plus/README.md (Usage, Known issues) |
+| firebase_auth error codes (**now confirmed**) | `invalid-verification-code`, `invalid-verification-id`, `missing-verification-code` → OTP_INVALID; `session-expired` (`code-expired` on web) → OTP_EXPIRED; `too-many-requests`, `quota-exceeded` → RATE_LIMITED; `invalid-phone-number` → VALIDATION_ERROR; `network-request-failed` → network. On Android/Apple `verifyPhoneNumber` does not throw; errors arrive in `verificationFailed` | ctx7 `/firebase/flutterfire` docs/auth/errors.md (Phone authentication and app verification; How error codes are formatted) |
+| ⚠ firebase_messaging **17.x** deprecations | `getToken()` / `onTokenRefresh` are `@Deprecated('Use register() and onRegistered instead.')`. `onRegistered` yields a **Firebase Installation ID (FID)**, a different send target from an FCM registration token. The server sends to registration tokens (firebase-admin `send_each`), so the app keeps `getToken`/`onTokenRefresh` with `// ignore: deprecated_member_use` until the server moves to FIDs | ctx7 `/firebase/flutterfire` packages/firebase_messaging/firebase_messaging/lib/src/messaging.dart |
+| flutter_riverpod 3 overrides | `provider.overrideWithValue(v)`; `provider.overrideWith((ref) => ...)` (Provider/FutureProvider/StreamProvider); `notifierProvider.overrideWith(() => FakeNotifier())`; in `ProviderScope(overrides:)` / `ProviderContainer(overrides:)` | ctx7 `/websites/pub_dev_flutter_riverpod/3.4.2` (Provider.overrideWith, StreamProvider.overrideWith) |
+| mocktail (dev only) | `class M extends Mock implements X {}`; `when(() => m.f(any())).thenAnswer(...)`; `verify(...).called(1)`; `verifyNever(...)` | pub.dev/packages/mocktail README (required by the P7 brief; test-only) |
+| Dart 3.13 private initializing formals | `C({required this._field})`: the named parameter is public (`field:`) and assigns the private field (asked for by the `prefer_initializing_formals` lint) | flutter analyze 3.47.9 output |
+
+P7 notes for P8:
+- The dio base URL ends with `/api/v1/` and request paths are **relative, without a leading slash** (`api.get('buses/live')`). The tests assert the resolved URI.
+- The WebSocket goes through the `LiveChannel` interface, so tests use a fake. `WebSocketLiveChannel` wraps `WebSocketChannel.connect`, `ready`, `closeCode`, `closeReason` and `sink.close(code, reason)`.
+
 ---
 
 ## Cross-cutting anti-patterns (reject in review)
