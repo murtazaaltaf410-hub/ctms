@@ -123,6 +123,13 @@ slowapi facts that drove the rejection (ctx7 `_autodocs/api-reference/extension.
 
 ---
 
+
+### Added by P2 (verified via context7 /websites/fastapi_tiangolo)
+- `fastapi.security.HTTPBearer(auto_error=False, description=...)` → `HTTPAuthorizationCredentials | None` (`.scheme`, `.credentials`). Source: fastapi.tiangolo.com/reference/security/
+- `@app.exception_handler(StarletteHTTPException)` to render 404/405 in the spec envelope. Source: fastapi.tiangolo.com/tutorial/handling-errors/
+- `asyncpg.CannotConnectNowError` (with `PostgresConnectionError`, `OSError`, `TimeoutError`) → 503 `DB_UNAVAILABLE`.
+- Installed versions (P2): fastapi 0.162.2, asyncpg 0.32.0, PyJWT 2.15.1, pydantic 2.14.3, pydantic-settings 2.16.2, firebase-admin 7.7.0, google-auth 2.62.1.
+
 ## App (Flutter, Dart)
 
 ### google_sign_in **v7.x** — ctx7: `/websites/pub_dev_packages_google_sign_in`, `/websites/pub_dev_google_sign_in`
