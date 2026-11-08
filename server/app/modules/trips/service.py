@@ -111,14 +111,15 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
     )
     if bus is None:
         raise NotFound("No active bus is linked to this driver")
+    explicit = route_id is not None
     route_id = route_id or bus["default_route_id"]
-    if route_id is None:
-        raise ValidationFailed("route_id: required because the bus has no default route")
-    route_ok = await con.fetchval(
+    usable = route_id is not None and await con.fetchval(
         "select true from public.routes where id = $1 and active and status = 'active'", route_id
     )
-    if not route_ok:
-        raise NotFound("Route not found or not active")
+    if not usable:
+        # A draft/inactive default route is ignored, i.e. treated as no default (U6/U7).
+        raise ValidationFailed("route_id: route is unknown, draft or inactive" if explicit
+                               else "route_id: required because the bus has no active default route")
     if await con.fetchval(
         "select true from public.trips where (bus_id = $1 or driver_id = $2) and ended_at is null",
         bus["id"], driver_id,

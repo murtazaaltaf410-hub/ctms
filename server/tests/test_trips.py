@@ -45,6 +45,21 @@ async def test_start_with_explicit_route(client, live_app, driver_with_bus, make
     assert resp.status_code == 201 and resp.json()["route_id"] == str(other["id"])
 
 
+@pytest.mark.parametrize("change", ["update public.routes set status = 'draft' where id = $1",
+                                    "update public.routes set active = false where id = $1"])
+async def test_start_refuses_draft_or_inactive_route(client, con, live_app, driver_with_bus, make_route, change):
+    driver = await driver_with_bus()
+    other = await make_route(name="Other")
+    await con.execute(change, other["id"])
+    resp = await client.post("/api/v1/trips/start", json={"route_id": str(other["id"])}, headers=driver["headers"])
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    # The same route as the bus default is ignored: no usable route -> 400, no trip.
+    await con.execute(change, driver["route"]["id"])
+    resp = await client.post("/api/v1/trips/start", json={}, headers=driver["headers"])
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert await con.fetchval("select count(*) from public.trips where bus_id = $1", driver["bus_id"]) == 0
+
+
 async def test_active_is_null_without_trip(client, live_app, driver_with_bus):
     driver = await driver_with_bus()
     resp = await client.get("/api/v1/trips/active", headers=driver["headers"])
