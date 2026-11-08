@@ -178,3 +178,21 @@ These come from the edge-case catalogue and must also be config, not literals:
 | `eta_display_cap_s` | 1800 → "30+ min" | Edge A9 |
 | `otp_request_per_phone` / window | 3 / 600 s | Edge U4 |
 | `otp_ttl_s` | 300 | Edge U4 |
+
+## ADR-7 — User override of ADR-1: pluggable OTP provider, dev mode first (2026-11-08)
+
+The user chose **"dev mode for now, decide later"**. Keep the spec endpoints `POST /auth/phone/request` (always 202, 3 sends per phone per 10 min plus a per-IP limit) and `POST /auth/phone/verify` (`OTP_INVALID` / `OTP_EXPIRED`). Put an `OtpProvider` interface behind them:
+- `ConsoleOtpProvider` is the default when `APP_ENV=dev` or `OTP_PROVIDER=console`. The server generates a 6-digit code, stores only its hash with a 5-minute expiry and an attempt counter, and logs the code to the server console. Never return it in the response.
+- `FirebaseOtpProvider` follows ADR-1 (the device runs Firebase Phone Auth and `otp` carries the Firebase ID token). It is implemented but selected only with `OTP_PROVIDER=firebase`.
+- An SMS-provider implementation (e.g. Twilio/MSG91) can be added later behind the same interface.
+
+The provider must be picked before launch. Production config fails fast if `OTP_PROVIDER=console`.
+**DB impact:** the OTP request table needs nullable `code_hash`, `expires_at` and `attempts` columns so the console and SMS providers work.
+**App impact (P7):** the driver login screen asks for the phone, calls `/request`, then asks for the 6-digit code. Only in Firebase mode does the app run `verifyPhoneNumber` and send the ID token.
+
+## ADR-8 — Route polylines: Google **Routes API** (`computeRoutes`), not the legacy Directions API (2026-11-08)
+
+The user chose the Routes API because new Cloud projects may not be able to enable the legacy Directions API.
+- **P5:** call `POST https://routes.googleapis.com/directions/v2:computeRoutes` with headers `X-Goog-Api-Key` and `X-Goog-FieldMask: routes.polyline.encodedPolyline,routes.distanceMeters`. Use the stops as origin, intermediates and destination, with `travelMode: DRIVE`. Check the exact request shape with context7 or the official docs before coding.
+- Call it once whenever a route's stops change. If it fails, the route becomes a draft with `POLYLINE_FAILED`.
+- The env var keeps the runbook name `GOOGLE_DIRECTIONS_KEY`; the key must have the Routes API enabled and be restricted to the server.
