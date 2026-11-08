@@ -93,10 +93,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(
-                    Icons.directions_bus_filled_outlined,
-                    size: 64,
-                    color: theme.colorScheme.primary,
+                  Image.asset(
+                    'assets/icon/logo.png',
+                    height: 120,
+                    semanticLabel: 'Campus Transport Management System logo',
                   ),
                   const SizedBox(height: 16),
                   Text(

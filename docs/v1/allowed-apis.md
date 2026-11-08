@@ -187,6 +187,7 @@ context7 has no index for the Routes API. The searches tried were "Google Maps R
 | ⚠ Deprecated | `cloudMapId` → use `mapId`. `controller.setMapStyle()` → use the `style:` widget param | GoogleMap-class.html (deprecation note) |
 | Size | GoogleMap must be in a bounded-size parent | index.html |
 | Android key | `<meta-data android:name="com.google.android.geo.API_KEY" android:value="${MAPS_API_KEY}"/>` via gradle manifestPlaceholders per flavor. **UNCONFIRMED** in this ctx7 session (standard README setup) | — |
+| Admin route editor | `GoogleMap(onTap: (LatLng p) {...}, mapType: MapType.hybrid \| MapType.normal, myLocationButtonEnabled: false)`; `Marker(draggable: true, onDragEnd: (LatLng p) {...}, infoWindow: InfoWindow(title:, snippet:, onTap:))`; `Polyline(patterns: [PatternItem.dash(16), PatternItem.gap(10)])` | GoogleMap-class.html, Marker-class.html |
 | Marker animation | No built-in tween. Interpolate the `LatLng` in an `AnimationController` and rebuild the marker set | (design note) |
 
 ### geolocator — ctx7: `/baseflow/flutter-geolocator`

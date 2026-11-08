@@ -9,6 +9,7 @@ import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import 'admin_models.dart';
 import 'admin_providers.dart';
+import 'route_map_editor.dart';
 
 /// Operational admin console. The live list remains useful when Maps is unavailable.
 class AdminHomeScreen extends ConsumerStatefulWidget {
@@ -643,74 +644,35 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
 }
 
 Future<void> _routeForm(BuildContext context, WidgetRef ref) async {
-  final name = TextEditingController();
-  final stops = TextEditingController();
-
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Create route'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Route name'),
-          ),
-          TextField(
-            controller: stops,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Stops: name,lat,lng (one per line)',
-              helperText: 'Directions are generated after saving.',
-            ),
-          ),
-        ],
+  final draft = await Navigator.push<RouteDraft>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const RouteMapEditor(
+        title: 'Create route',
+        askName: true,
+        minStops: 2,
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final parsed = <Map<String, Object>>[];
-            for (final line
-                in stops.text
-                    .split('\n')
-                    .where((line) => line.trim().isNotEmpty)) {
-              final parts = line.split(',');
-              final lat = parts.length == 3
-                  ? double.tryParse(parts[1].trim())
-                  : null;
-              final lng = parts.length == 3
-                  ? double.tryParse(parts[2].trim())
-                  : null;
-              if (parts.length != 3 || lat == null || lng == null) {
-                _error(
-                  dialogContext,
-                  const ApiException(ApiErrorCode.validationError),
-                );
-                return;
-              }
-              parsed.add({'name': parts[0].trim(), 'lat': lat, 'lng': lng});
-            }
-            if (name.text.trim().isEmpty) {
-              return;
-            }
-            Navigator.pop(dialogContext);
-            await _run(
-              context,
-              ref,
-              () => ref
-                  .read(adminRepositoryProvider)
-                  .createRoute(name: name.text.trim(), stops: parsed),
-            );
-          },
-          child: const Text('Save route'),
-        ),
-      ],
     ),
+  );
+  if (draft == null || !context.mounted) {
+    return;
+  }
+  await _run(
+    context,
+    ref,
+    () => ref
+        .read(adminRepositoryProvider)
+        .createRoute(
+          name: draft.name,
+          stops: [
+            for (final stop in draft.stops)
+              {
+                'name': stop.name,
+                'lat': stop.position.latitude,
+                'lng': stop.position.longitude,
+              },
+          ],
+        ),
   );
 }
 
@@ -740,6 +702,22 @@ Future<void> _routeDetail(
             (stop) => ListTile(
               leading: Text('${stop.sequence}'),
               title: Text(stop.name),
+              onTap: () async {
+                final name = await _askStopName(sheetContext, stop.name);
+                if (name == null || !context.mounted) {
+                  return;
+                }
+                if (sheetContext.mounted) {
+                  Navigator.pop(sheetContext);
+                }
+                await _run(
+                  context,
+                  ref,
+                  () => ref.read(adminRepositoryProvider).updateStop(stop.id, {
+                    'name': name,
+                  }),
+                );
+              },
               subtitle: Text(
                 '${stop.lat.toStringAsFixed(5)}, ${stop.lng.toStringAsFixed(5)}',
               ),
@@ -761,7 +739,10 @@ Future<void> _routeDetail(
             ),
           ),
           OutlinedButton.icon(
-            onPressed: () => _addStop(context, ref, route.id),
+            onPressed: () {
+              Navigator.pop(sheetContext);
+              _addStop(context, ref, route.id, detail.stops);
+            },
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Add stop'),
           ),
@@ -775,64 +756,58 @@ Future<void> _routeDetail(
   }
 }
 
-Future<void> _addStop(
-  BuildContext context,
-  WidgetRef ref,
-  String routeId,
-) async {
-  final name = TextEditingController();
-  final lat = TextEditingController();
-  final lng = TextEditingController();
-
-  await showDialog<void>(
+Future<String?> _askStopName(BuildContext context, String current) async {
+  final controller = TextEditingController(text: current);
+  final name = await showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('Add stop'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Name'),
-          ),
-          TextField(
-            controller: lat,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Latitude'),
-          ),
-          TextField(
-            controller: lng,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Longitude'),
-          ),
-        ],
+      title: const Text('Rename stop'),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
       ),
       actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
-          onPressed: () async {
-            final latitude = double.tryParse(lat.text);
-            final longitude = double.tryParse(lng.text);
-            if (name.text.trim().isEmpty ||
-                latitude == null ||
-                longitude == null) {
-              return;
-            }
-            Navigator.pop(dialogContext);
-            await _run(
-              context,
-              ref,
-              () => ref.read(adminRepositoryProvider).addStop(routeId, {
-                'name': name.text.trim(),
-                'lat': latitude,
-                'lng': longitude,
-              }),
-            );
-          },
-          child: const Text('Add'),
+          onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+          child: const Text('Save'),
         ),
       ],
     ),
   );
+  controller.dispose();
+  return name == null || name.isEmpty || name == current ? null : name;
+}
+
+Future<void> _addStop(
+  BuildContext context,
+  WidgetRef ref,
+  String routeId,
+  List<AdminStop> existing,
+) async {
+  final draft = await Navigator.push<RouteDraft>(
+    context,
+    MaterialPageRoute(
+      builder: (_) =>
+          RouteMapEditor(title: 'Add stops', existingStops: existing),
+    ),
+  );
+  if (draft == null || !context.mounted) {
+    return;
+  }
+  await _run(context, ref, () async {
+    for (final stop in draft.stops) {
+      await ref.read(adminRepositoryProvider).addStop(routeId, {
+        'name': stop.name,
+        'lat': stop.position.latitude,
+        'lng': stop.position.longitude,
+      });
+    }
+  });
 }
 
 Future<void> _scheduleForm(
