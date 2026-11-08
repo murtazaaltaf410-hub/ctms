@@ -1,0 +1,196 @@
+CTMS V1 ­ Deployment, Operations and Privacy Runbook
+
+CTMS V1 ­ Deployment, Operations and
+Privacy Runbook
+
+ N ov 4, 2026 · @Waris
+
+This runbook covers how to ship, watch and support the pilot, and how location data is
+handled; it assumes the design in the TRD and the checks in the Test Plan.
+
+Environments and configuration
+
+Staging and production are separate hosts, databases and Firebase and Google Maps
+projects, so a test never touches real data.
+
+Setting (environment variable) Purpose
+
+APP_ENV                                               staging or production
+
+DATABASE_URL                                          Supabase PostgreSQL connection
+
+JWT_SECRET                                            Signs access tokens; long random value, different
+                                                      per environment
+
+GOOGLE_OAUTH_CLIENT_IDS                               Client IDs the server accepts for Google sign-in
+
+GOOGLE_DIRECTIONS_KEY                                 Server-only key, restricted to the Directions API
+
+FCM_CREDENTIALS                                       Firebase service account for push
+
+SEED_ADMIN_EMAIL                                      First admin; others are added in the app
+
+ALERT_RADIUS_M                                        Default 500; the admin setting overrides it
+
+Secrets are set in the host's dashboard and never committed to the repository. The
+Flutter apps carry only restricted client keys, built per environment with build flavours.
+
+Deployment steps
+
+Backend
+
+  1. Merge to the main branch only after the automated tests pass (GitHub Actions).
+  2. Build the Docker image, or let the host build from the repository.
+  3. Run database migrations first (Alembic); write each migration so the previous server
+
+     version still works with it, which keeps rollback safe.
+  4. Deploy the new server version and wait for GET /health to return OK.
+
+                                                                                                         Page 1 of 5
+CTMS V1 ­ Deployment, Operations and Privacy Runbook
+
+  5. Run the smoke test: sign in, fetch /buses/live , and drive the simulator for one
+     minute.
+
+  6. Confirm the keep-alive ping (a scheduled request to /health during service hours) is
+     active.
+
+Rollback: redeploy the previous version from the host's deploy history; do not roll back a
+migration unless data is corrupted.
+
+Mobile apps
+
+  1. Build a signed release per environment using its flavour and keys.
+  2. Android: share through a closed testing track or a direct APK link for the pilot; iOS (if
+
+     included): TestFlight.
+  3. Show a minimum supported version from the server so an old build can be told to
+
+     update.
+  4. For each release, re-run the driver onboarding checklist on one phone before sending
+
+     it to others.
+
+Monitoring, backups and incident runbook
+
+Monitoring. An uptime check on /health every few minutes during service hours; error
+tracking on the server and in the Flutter apps; server logs searchable for 7 days. Watch
+these numbers daily during the pilot: active buses, age of each bus's last fix, rejected fixes
+per hour, push failures, sign-in failures and Google Maps usage against the quota.
+
+Backups. Free database tiers may not include restorable backups, so verify this first.
+Either way, export the database weekly with pg_dump to storage the team controls, and
+test one restore before launch.
+
+Symptom                   Likely cause                    First action
+
+A running bus is missing  Trip not started, driver app    Check the admin live monitor
+on students' maps         killed, or no signal            for last-seen time; call the
+                                                          driver; see T1, T5, T7
+Positions arrive late     Server asleep or overloaded,
+                          slow driver connection          Check /health and server
+                                                          logs; confirm keep-alive;
+No alerts arriving        Student location stale,         check the driver's signal
+                          notifications off, FCM failure
+                                                          Check the student's alert
+                                                          settings and the push log; see
+                                                          A5 to A7, N9
+
+                                                          Page 2 of 5
+CTMS V1 ­ Deployment, Operations and Privacy Runbook
+
+Symptom                  Likely cause                                   First action
+Students cannot sign in  Google client ID mismatch,
+Driver cannot sign in    server down                                    Check the server, then the
+                         Number not registered, OTP                     configured client IDs
+Map is blank             limit or SMS quota
+                                                                        Check the driver record and
+Wrong ETAs               Maps key restricted wrongly                    OTP limits; register the
+                         or quota hit                                   number if needed
+
+                         Polyline wrong or minimum                      Check the key restrictions
+                         speed unsuitable                               and quota in Google Cloud;
+                                                                        see N8
+
+                                                                        Compare the polyline to the
+                                                                        road; review recent speeds;
+                                                                        adjust the setting
+
+For any incident longer than 15 minutes, post an announcement through the app so
+students know, and write a short note: what happened, how long, what changed.
+
+Privacy, consent and data handling
+
+The app collects location from two groups with different purposes, so each gets its own
+plain-language notice and consent screen. This is a working outline, not legal advice: have
+the university's legal or IT contact review it against the Digital Personal Data Protection
+Act, 2023 and university policy before launch.
+
+Data      From                                        Used for          Visible to         Kept
+Student
+location  Student                                     Deciding when to  Server only; not   Latest value,
+          phone, only                                 send a nearby     shown to admins    expires after 5
+Bus       with alert                                  alert             or other students  minutes
+location  mode on
+                                                      Live map, ETA,    Students (bus      History 90 days,
+          Driver phone,                               reports           only, not the      then deleted or
+          only during a                                                 driver's name),    summarised
+          trip                                        Account and       admins
+                                                      roles                                Until account
+Name and  Sign-in                                                       The user, admins   deletion
+email or
+phone
+
+Push token App                                        Delivering        Server only        Until sign-out or
+                                                      notifications                        invalid
+
+                                                                                                 Page 3 of 5
+CTMS V1 ­ Deployment, Operations and Privacy Runbook
+
+Consent screens
+     Student: explain that location is used only to warn when a bus is near, is not stored as
+     history, and can be switched off any time; ask for background location only after this
+     screen, and never before alert mode is switched on.
+     Driver: explain that location is shared only while a trip is active, who can see it, and
+     how long trip history is kept.
+
+Rights and handling
+     Students can delete their account in the app ( DELETE /me ), which removes personal
+     data and the alert log.
+     Students never see a driver's personal details on the map.
+     Admin access to trip history is limited to the admin role, and role changes are logged.
+     If personal data may have been exposed, rotate secrets, record what happened, and
+     tell the university contact the same day.
+
+Open items for the university: who owns the data, the final retention period, and who
+answers privacy questions from students.
+
+Driver and admin onboarding checklist
+
+Driver phones are the biggest source of tracking problems, so onboarding is part of the
+product. Do this in person, once per driver.
+Driver setup (about 15 minutes)
+
+     Admin registers the driver's phone number and links it to their bus
+     Driver installs the app and signs in with the OTP
+     Location permission set to "Allow all the time" and "Precise" on
+     Battery optimisation turned off for the app; app locked in recent apps where the
+     phone allows it
+     Notifications allowed, so the ongoing "trip in progress" notice stays visible
+     Driver does a practice trip: Start, set Delayed, End
+     Driver keeps the phone on a charger or mount during trips
+     Driver knows who to call when the app stops working
+Admin setup
+     Seeded admin signs in and adds the other admins
+     Buses, routes, stops and timetables created; each route polyline checked on the map
+     Alert radius reviewed (default 500 m)
+     A test announcement posted and received
+
+                                                                                                                                                                                                                                              Page 4 of 5
+CTMS V1 ­ Deployment, Operations and Privacy Runbook
+
+     Admin knows how to read the live monitor and the trip report
+     Admin has the runbook's incident table and the server owner's contact
+
+                                                                                                                                                                                                                                              Page 5 of 5
+

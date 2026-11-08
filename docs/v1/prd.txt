@@ -1,0 +1,275 @@
+CTMS V1 ­ Product Requirements Document
+
+CTMS V1 ­ Product Requirements
+Document
+
+ N ov 4, 2026 · @ Waris
+V1 is a pilot of 1­3 university buses on 1­2 routes at University of Kashmir, North Campus,
+delivered as Flutter mobile apps backed by a Python FastAPI server and Google Maps,
+within about one month on free-tier hosting.
+
+Overview
+
+Students currently depend on WhatsApp live-location shares to find out where a bus is.
+CTMS replaces that with a live map, estimated arrival times and automatic alerts. Drivers
+share location from their own phones, and admins manage buses, routes, stops and
+announcements from inside the same app.
+
+Goals
+
+     Students see every active bus on a live map with an ETA to any stop.
+     A student is alerted when a bus comes within about 500 m of where the student
+     currently is.
+     Drivers start and stop trips and report bus status in two taps.
+     Admins manage the fleet, routes, stops and announcements and review trip history
+     and distance.
+     The pilot runs end to end on 1­3 real buses with no paid infrastructure.
+
+Non-goals for V1
+
+     GPS hardware or ignition integration (future phase).
+     Fuel monitoring and fuel-discrepancy detection.
+     A separate web dashboard (admin lives in the Flutter app).
+     Payments, seat booking or attendance.
+     Full-campus scale beyond the pilot buses.
+
+Users and roles
+
+There are three roles in one Flutter app; the screens a person sees depend on their role.
+
+                                                                                                                                                                                                                                              Page 1 of 7
+CTMS V1 ­ Product Requirements Document
+
+Role    Who                              Sign-in                      Main needs
+
+Student Any university                   Google sign-in (university   See buses, ETA, alerts,
+               student                   email not required, but      announcements
+                                         accepted)
+
+Driver  One fixed driver                 Phone number + OTP,          Start/stop trip, share location,
+        per bus                          account created and          set status
+                                         linked to a bus by an admin
+
+Admin   A few staff with                 Google sign-in, allow-listed Manage fleet, routes, stops,
+        equal powers
+                                         by an existing admin         announcements, reports
+
+Admin accounts are created by seeding the first admin in the database; further admins
+are added by an existing admin.
+
+V1 scope and phasing
+
+All seven chosen features stay in V1, but the build is ordered so a usable live-tracking
+demo exists by the end of week 2 and the riskiest items are built early. Four weeks is tight
+for one developer; if time slips, cut from the end of the list, never from phase 1.
+
+  1. Week 1 ­ Foundation. FastAPI project, database, Google and phone-OTP auth, roles,
+     bus/route/stop CRUD, Flutter app shell with role-based navigation.
+
+  2. Week 2 ­ Live tracking (core). Driver trip start/stop and background location upload;
+     WebSocket broadcast; student live map with bus markers and route polyline; driver
+     status (on time, delayed, breakdown).
+
+  3. Week 3 ­ Intelligence and alerts. ETA to stops, proximity detection against the
+     student's current location, push notifications, announcements.
+
+  4. Week 4 ­ Reports and pilot hardening. Trip history and distance reports, admin
+     polish, battery and offline handling, field test on a real bus, bug fixes, deployment.
+
+Order matters: proximity alerts depend on live tracking being stable, so they come after it,
+and reports come last because they only need data that phase 2 already stores.
+
+Functional requirements
+
+Student
+
+     S1 Live map: show all active buses on Google Maps, updating at least every 5 seconds,
+     with route polyline and stops; inactive buses are hidden or greyed out with "not
+     running".
+
+                                                                                               Page 2 of 7
+CTMS V1 ­ Product Requirements Document
+
+     S2 Bus and route info: tap a bus to see route, driver status, next stop and ETA.
+     S3 ETA to stops: pick any stop on a route and see the ETA of the next bus.
+     S4 Nearby alert: with "Alert me when a bus is near me" switched on, the student gets
+     a push notification when an active bus is within about 500 m of the student's current
+     location. One alert per bus per trip, with a cooldown so it does not repeat.
+     S5 Announcements: read-only feed of admin announcements; push notification for
+     urgent ones.
+     S6 Account: Google sign-in, sign-out, delete account and data.
+
+Driver
+
+     D1 Sign in: phone number + OTP; the account is already linked to one bus by an admin.
+     D2 Start trip: choose a route (or the default), tap Start; the app begins uploading
+     location in the background with a visible ongoing-notification.
+     D3 End trip: tap End; uploading stops and the trip is closed.
+     D4 Status: set On time, Delayed or Breakdown, plus an optional short note shown to
+     students.
+     D5 Connection health: show GPS and network state; buffer positions locally during
+     signal loss and send them when back online.
+
+Admin
+
+     A1 Fleet management: create, edit and deactivate buses; create driver accounts
+     (phone number) and link each to one bus.
+     A2 Routes and stops: create routes with ordered stops by placing pins on a map;
+     generate and store the route polyline once using Google Directions.
+     A3 Schedules: define optional timetables per route (fixed daily departure times);
+     unscheduled ad hoc trips are always allowed.
+     A4 Live monitor: see every active bus, driver status and last-seen time on one map.
+     A5 Announcements: create, edit and delete announcements, optionally with a push
+     notification.
+     A6 Trip history and reports: list of trips with date, bus, driver, start and end time,
+     distance travelled and average speed; filter by date and bus; replay a trip path on the
+     map.
+     A7 Admin access: an existing admin can add or remove other admins.
+
+                                                                                                                                                                                                                                              Page 3 of 7
+CTMS V1 ­ Product Requirements Document
+
+Key behaviours
+
+     ETA method: the server computes remaining distance along the stored route polyline
+     and divides by a smoothed recent speed (with a minimum-speed floor). Google Maps
+     is used for drawing the map and generating each route once, not for every ETA
+     request, which keeps the pilot inside free quotas.
+     Nearby alert method: with alert mode on, the student's app reports its location only
+     when the student has moved a meaningful distance; the server compares it with
+     active bus positions and sends the push through Firebase Cloud Messaging.
+     Scheduled and ad hoc trips: a trip is Scheduled (matches a timetable slot) or Ad hoc;
+     students see both the same way, with scheduled buses showing the planned time
+     next to the ETA.
+
+System architecture and tech stack
+
+V1 architecture · 3 apps roles, 1 server, 3 services
+
+The app talks to one FastAPI server over HTTPS and a WebSocket; only the server touches
+the database and Firebase, and it builds each route polyline once through Google Maps.
+
+     Mobile: Flutter with google_maps_flutter , a background-location service for the
+     driver, and firebase_messaging for push.
+     Backend: Python FastAPI with async PostgreSQL access and WebSocket support; a
+     background task batches positions into the database.
+     Database: Supabase PostgreSQL (free tier).
+     Hosting: Render or Railway free tier; the server keeps live positions in memory.
+     Maps: Google Maps SDK for display, Directions API to create each route polyline once.
+
+                                                                                                                                                                                                                                              Page 4 of 7
+CTMS V1 ­ Product Requirements Document
+
+Data model and API outline
+
+PostgreSQL (Supabase free tier) holds nine core tables; live positions are kept in memory
+and written to the database in batches for history.
+
+Table      Key fields
+
+users      id, role (student, driver, admin), name, email or
+           phone, push token, created_at
+
+buses      id, label, plate, active, driver_id
+
+routes     id, name, polyline, active
+
+stops      id, route_id, name, lat, lng, sequence
+
+schedules  id, route_id, departure_time, days_of_week
+
+trips      id, bus_id, route_id, type (scheduled or ad hoc),
+           status, started_at, ended_at, distance_m
+
+locations  trip_id, lat, lng, speed, heading, recorded_at
+
+announcements id, title, body, urgent, created_by, created_at
+
+alert_log  student_id, trip_id, sent_at (prevents repeat
+           alerts)
+
+REST endpoints (FastAPI, JWT auth):
+
+      POST /auth/google , POST /auth/phone/verify : sign in and receive a token.
+      GET /buses/live : current positions of active buses.
+      GET /routes , GET /routes/{id}/stops , GET /stops/{id}/eta .
+      POST /trips/start , POST /trips/{id}/end , POST /trips/{id}/status .
+      POST /trips/{id}/locations : batched driver positions.
+      POST /me/location : student position for nearby alerts.
+      GET/POST /announcements .
+     Admin: /admin/buses , /admin/drivers , /admin/routes , /admin/stops ,
+      /admin/schedules , /admin/admins , /admin/reports/trips .
+
+WebSocket: /ws/live streams bus position and status updates to students and admins;
+drivers send positions over REST so a dropped socket never loses data.
+
+                                                               Page 5 of 7
+CTMS V1 ­ Product Requirements Document
+
+Non-functional requirements, risks and open questions
+
+Non-functional requirements
+
+     Latency: a driver position appears on a student's map within 5 seconds in normal
+     conditions.
+     Driver battery and data: location upload every 3­5 seconds while moving, slower
+     when stopped; under 10 MB of data per hour.
+     Availability: server reachable during service hours (set with the university); the app
+     shows "last updated" so stale data is never presented as live.
+     Security: HTTPS only, JWT with short expiry, role checks on every endpoint, Supabase
+     row-level security, API keys restricted by app signature.
+     Privacy: student location is used only to decide nearby alerts, is not stored beyond
+     the latest value, and is deleted with the account; drivers are told that their location is
+     shared during trips only; admin trip history is kept for a period agreed with the
+     university.
+     Compatibility: Android first for the pilot; iOS build if time allows (see open questions).
+
+                                                                                                                                                                                                                                              Page 6 of 7
+CTMS V1 ­ Product Requirements Document
+
+Risks and mitigations
+
+Risk                                     Impact            Mitigation
+
+Background location is killed by Tracking gaps             Foreground service with
+phone battery savers                                       ongoing notification; driver
+                                                           onboarding checklist to disable
+Free-tier server sleeps or limits Slow first load,         battery optimisation
+
+connections                              dropped sockets   Keep-alive ping, graceful
+                                                           reconnect, test early; paid
+Phone OTP SMS has limited free Driver cannot sign in       upgrade is the fallback
+quota
+                                                           Only 1­3 drivers, so volume is
+Google Maps quota or billing             Unexpected cost   tiny; verify provider free limits
+surprises                                                  before launch
+
+Always-on student location               Low adoption      Set quotas and budget alerts;
+drains battery or worries users          Features dropped  generate routes once; compute
+                                                           ETAs on the server
+One-month timeline
+                                                           Update on movement only, clear
+                                                           consent screen, easy off switch
+
+                                                           Phased plan with a working
+                                                           demo by week 2
+
+Success metrics for the pilot
+
+     At least 80% of active trip time has a location update less than 10 seconds old.
+     Median ETA error under 2 minutes on the pilot routes.
+     Nearby alerts arrive before the bus passes the student in at least 90% of tested
+     cases.
+     At least 30 students install and use the app in the first two weeks.
+
+Open questions
+
+     Android only, or iOS too (needs an Apple developer account and background-location
+     review)?
+     Can drivers be asked to use their own phones, or will the university supply devices?
+     Is the 500 m alert distance right for campus roads, and should it be configurable?
+     How long should trip and location history be kept?
+     Who at the university approves the pilot and the privacy terms?
+
+                                                           Page 7 of 7
+

@@ -1,0 +1,200 @@
+CTMS V1 ­ Test Plan and Acceptance
+Checklist
+
+Nov 4, 2026 · 
+@Waris
+Most checks are automated on the server and a GPS simulator, because they are cheap to
+repeat; real-bus checks are reserved for what only a phone on a road can prove. Test IDs
+link back to the Edge Case Catalogue and the PRD.
+Test strategy and environments
+Environments: local (developer machine), staging (separate free-tier server and
+database with test Google keys), and production for the pilot. Staging is where the
+simulator and the first field test run.
+Level What it covers Tools
+Unit (server) Distance and snapping maths, ETA,
+alert rules, fix validation
+pytest
+API tests Every endpoint, roles, error codes,
+idempotency
+pytest with FastAPI's test client and
+a test database
+Simulation Replay a recorded or drawn route
+as a fake driver to drive the whole
+pipeline
+A script that posts timed fixes to a
+staging server
+App tests Widget tests for role screens;
+integration tests for sign-in and trip
+flow
+Flutter test and integration_test
+Field test Real phones on a real bus: GPS,
+battery, signal, alerts
+Manual with a checklist
+Security
+checks
+Role bypass, token misuse, key
+restrictions
+Manual plus API tests
+CTMS V1 ­ Test Plan and Acceptance Checklist
+Page 1 of 4
+Test cases by feature area
+ID Area Test Expected result Level
+TC1 Sign-in Student signs in with
+Google, then with a
+non-university
+account
+Both succeed (U1); role is
+student
+API, app
+TC2 Sign-in Unregistered phone
+number requests an
+OTP
+Same response as a
+registered number; no OTP
+sent
+API
+TC3 Sign-in Driver signs in on a
+second phone
+First phone gets
+SESSION_REPLACED (T11)
+API
+TC4 Roles Student calls an admin
+endpoint; driver posts
+to another driver's trip
+403 FORBIDDEN_ROLE /
+NOT_YOUR_TRIP
+API
+TC5 Trips Start a trip twice Second call 409
+TRIP_ALREADY_ACTIVE (T10)
+API
+TC6 Tracking Send a fix with 80 m
+accuracy, and one
+implying 200 km/h
+Both rejected with reasons;
+last good position kept (T3,
+T4)
+Unit, API
+TC7 Tracking Send the same
+fix_id twice
+One stored (N6) API
+TC8 Tracking Simulate 2 minutes of
+no fixes
+Bus goes stale at 30 s and
+offline at 2 min (T5)
+Simulation
+TC9 Tracking Driver app offline for 3
+minutes then back
+Buffered fixes upload in
+order; map catches up (T6)
+App, field
+TC10 Live map Student app open
+while the simulator
+drives a route
+Marker moves within 5 s of
+each fix
+Simulation,
+app
+TC11 Live map Kill the student's
+connection and
+restore it
+Banner, reconnect, correct
+positions (N2)
+App
+TC12 ETA Bus at known
+distances from a stop
+at fixed speeds
+ETA matches the formula
+within 5%
+Unit
+CTMS V1 ­ Test Plan and Acceptance Checklist
+Page 2 of 4
+Field test on a real bus
+Run this once on staging in week 3 and again on production before the pilot starts. Use at
+least two student phones (one Android model of each brand you can borrow) and the real
+driver phone.
+Before the ride
+During the ride
+ID Area Test Expected result Level
+TC13 Alerts Simulated bus
+approaches a student
+at 600, 500 and 400 m
+One alert near 500 m, none
+repeated (A3, alert log)
+Simulation
+TC14 Alerts Bus moving away
+within 500 m; student
+riding the bus
+No alert (A3, A1) Simulation
+TC15 Alerts Student denies
+background location
+or notifications
+Clear message, no silent
+failure (A6, A7)
+App
+TC16 Admin Create route with
+stops; Directions fails
+Draft route with
+POLYLINE_FAILED (U7)
+API
+TC17 Admin Delete a route during
+an active trip; remove
+the last admin
+Both blocked (U5, U6) API
+TC18 Reports Run three simulated
+trips
+Distance and times match the
+simulator's totals within 2%
+API
+TC19 Resilience Restart the server
+mid-trip
+Trip continues; map recovers
+within one fix (N4)
+Simulation
+TC20 Privacy Delete a student
+account
+Location, push token and
+alert log gone (U2)
+API
+Driver app installed, signed in with the driver's phone number, battery optimisation
+disabled for the app
+Student phones signed in, alert mode on, location set to "always" and notifications
+allowed
+Route and stops created; polyline looks right on the map
+Server awake and Google Maps keys restricted
+CTMS V1 ­ Test Plan and Acceptance Checklist
+Page 3 of 4
+After the ride
+Pilot acceptance and exit criteria
+The pilot starts only when every launch item passes, and it is judged a success against the
+PRD's success metrics after two weeks of use.
+Launch gate (all must pass)
+Pilot success (after two weeks)
+When a metric misses, record the cause (hardware, network, algorithm or adoption) and
+the fix before widening the pilot.
+Trip starts in two taps and the bus appears for students within 5 seconds
+Marker follows the real bus without jumping, including under trees and near buildings
+Status "Delayed" appears on student phones
+Student standing still gets one alert as the bus approaches, at roughly 500 m
+Student on the bus gets no alert
+Driver switches the phone to airplane mode for a minute, then back; map catches up
+Lock the driver's phone for 10 minutes; uploads continue
+ETA at a stop is compared with the real arrival time and the error is noted
+Trip ends and the report shows distance and times close to the real values
+Battery use on the driver phone over the ride is recorded
+Dead spots, wrong alerts and slow updates are written down with time and place
+TC1 to TC20 pass on staging, with no open high-severity bug
+Field test completed on the real bus with no blocking issue
+Driver completes a full trip using only the written onboarding steps
+Admin creates a route, adds a stop, posts an announcement and exports a trip report
+without help
+Google Maps quotas and budget alerts configured; keys restricted
+Privacy notice and location consent screens approved by the university contact
+Rollback plan from the runbook rehearsed once
+At least 80% of active trip time has a fix under 10 seconds old
+Median ETA error under 2 minutes
+Nearby alerts arrive before the bus passes in at least 90% of tested cases
+At least 30 students installed and used the app
+No unresolved privacy complaint
+CTMS V1 ­ Test Plan and Acceptance Checklist
+Page 4 of 4
+

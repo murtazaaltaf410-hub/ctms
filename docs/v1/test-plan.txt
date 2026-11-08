@@ -1,0 +1,183 @@
+CTMS V1 ­ Test Plan and Acceptance Checklist
+
+CTMS V1 ­ Test Plan and Acceptance
+Checklist
+
+ Nov 4, 2026 · @ Waris
+
+Most checks are automated on the server and a GPS simulator, because they are cheap to
+repeat; real-bus checks are reserved for what only a phone on a road can prove. Test IDs
+link back to the Edge Case Catalogue and the PRD.
+
+Test strategy and environments
+
+Level          What it covers                          Tools
+Unit (server)
+API tests      Distance and snapping maths, ETA, pytest
+Simulation     alert rules, fix validation
+
+App tests      Every endpoint, roles, error codes,     pytest with FastAPI's test client and
+               idempotency                             a test database
+Field test
+Security       Replay a recorded or drawn route        A script that posts timed fixes to a
+checks         as a fake driver to drive the whole     staging server
+               pipeline
+
+               Widget tests for role screens;          Flutter test and integration_test
+               integration tests for sign-in and trip
+               flow
+
+               Real phones on a real bus: GPS,         Manual with a checklist
+               battery, signal, alerts
+
+               Role bypass, token misuse, key          Manual plus API tests
+               restrictions
+
+Environments: local (developer machine), staging (separate free-tier server and
+database with test Google keys), and production for the pilot. Staging is where the
+simulator and the first field test run.
+
+                                                                                          Page 1 of 4
+CTMS V1 ­ Test Plan and Acceptance Checklist
+
+Test cases by feature area
+
+ID  Area       Test                           Expected result               Level
+                                                                            API, app
+TC1 Sign-in    Student signs in with          Both succeed (U1); role is
+               Google, then with a            student                       API
+               non-university
+               account                                                      API
+                                                                            API
+TC2 Sign-in    Unregistered phone             Same response as a
+TC3 Sign-in    number requests an             registered number; no OTP     API
+TC4 Roles      OTP                            sent                          Unit, API
+TC5 Trips
+TC6 Tracking   Driver signs in on a           First phone gets              API
+TC7 Tracking   second phone                   SESSION_REPLACED (T11)        Simulation
+TC8 Tracking                                                                App, field
+TC9 Tracking   Student calls an admin         403 FORBIDDEN_ROLE /          Simulation,
+TC10 Live map  endpoint; driver posts                                       app
+TC11 Live map  to another driver's trip       NOT_YOUR_TRIP                 App
+TC12 ETA
+               Start a trip twice             Second call 409               Unit
+                                              TRIP_ALREADY_ACTIVE (T10)
+
+               Send a fix with 80 m           Both rejected with reasons;
+               accuracy, and one              last good position kept (T3,
+               implying 200 km/h              T4)
+
+               Send the same                  One stored (N6)
+               fix_id twice
+
+               Simulate 2 minutes of          Bus goes stale at 30 s and
+               no fixes                       offline at 2 min (T5)
+
+               Driver app offline for 3 Buffered fixes upload in
+
+               minutes then back              order; map catches up (T6)
+
+               Student app open               Marker moves within 5 s of
+               while the simulator            each fix
+               drives a route
+
+               Kill the student's             Banner, reconnect, correct
+               connection and                 positions (N2)
+               restore it
+
+               Bus at known                   ETA matches the formula
+               distances from a stop          within 5%
+               at fixed speeds
+
+                                                                            Page 2 of 4
+CTMS V1 ­ Test Plan and Acceptance Checklist
+
+ID  Area      Test                            Expected result               Level
+                                                                            Simulation
+TC13 Alerts   Simulated bus                   One alert near 500 m, none
+              approaches a student            repeated (A3, alert log)
+              at 600, 500 and 400 m
+
+TC14 Alerts   Bus moving away                 No alert (A3, A1)             Simulation
+              within 500 m; student
+              riding the bus
+
+TC15 Alerts   Student denies                  Clear message, no silent      App
+              background location             failure (A6, A7)              API
+              or notifications                                              API
+                                              Draft route with
+TC16 Admin    Create route with               POLYLINE_FAILED (U7)
+              stops; Directions fails         Both blocked (U5, U6)
+
+TC17 Admin    Delete a route during
+              an active trip; remove
+              the last admin
+
+TC18 Reports  Run three simulated             Distance and times match the API
+              trips                           simulator's totals within 2%
+
+TC19 Resilience Restart the server            Trip continues; map recovers  Simulation
+                              mid-trip        within one fix (N4)
+
+TC20 Privacy  Delete a student                Location, push token and      API
+              account
+                                              alert log gone (U2)
+
+Field test on a real bus
+
+Run this once on staging in week 3 and again on production before the pilot starts. Use at
+least two student phones (one Android model of each brand you can borrow) and the real
+driver phone.
+
+Before the ride
+
+     Driver app installed, signed in with the driver's phone number, battery optimisation
+     disabled for the app
+     Student phones signed in, alert mode on, location set to "always" and notifications
+     allowed
+     Route and stops created; polyline looks right on the map
+     Server awake and Google Maps keys restricted
+
+During the ride
+
+                                                                                 Page 3 of 4
+CTMS V1 ­ Test Plan and Acceptance Checklist
+
+     Trip starts in two taps and the bus appears for students within 5 seconds
+     Marker follows the real bus without jumping, including under trees and near buildings
+     Status "Delayed" appears on student phones
+     Student standing still gets one alert as the bus approaches, at roughly 500 m
+     Student on the bus gets no alert
+     Driver switches the phone to airplane mode for a minute, then back; map catches up
+     Lock the driver's phone for 10 minutes; uploads continue
+     ETA at a stop is compared with the real arrival time and the error is noted
+After the ride
+     Trip ends and the report shows distance and times close to the real values
+     Battery use on the driver phone over the ride is recorded
+     Dead spots, wrong alerts and slow updates are written down with time and place
+
+Pilot acceptance and exit criteria
+
+The pilot starts only when every launch item passes, and it is judged a success against the
+PRD's success metrics after two weeks of use.
+Launch gate (all must pass)
+
+     TC1 to TC20 pass on staging, with no open high-severity bug
+     Field test completed on the real bus with no blocking issue
+     Driver completes a full trip using only the written onboarding steps
+     Admin creates a route, adds a stop, posts an announcement and exports a trip report
+     without help
+     Google Maps quotas and budget alerts configured; keys restricted
+     Privacy notice and location consent screens approved by the university contact
+     Rollback plan from the runbook rehearsed once
+Pilot success (after two weeks)
+     At least 80% of active trip time has a fix under 10 seconds old
+     Median ETA error under 2 minutes
+     Nearby alerts arrive before the bus passes in at least 90% of tested cases
+     At least 30 students installed and used the app
+     No unresolved privacy complaint
+When a metric misses, record the cause (hardware, network, algorithm or adoption) and
+the fix before widening the pilot.
+
+                                                                                                                                                                                                                                              Page 4 of 4
+

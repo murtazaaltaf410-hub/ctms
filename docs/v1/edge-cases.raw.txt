@@ -1,0 +1,177 @@
+CTMS V1 ­ Edge Case Catalogue
+
+Nov 4, 2026 · 
+@Waris
+This catalogue lists 40 situations that will happen during the pilot, with the behaviour the
+apps and server must show; each ID is also a test case in the Test Plan. Values like 30
+seconds match the TRD.
+Tracking and GPS
+ID Situation Required behaviour
+T1 Driver forgets to start a trip Bus stays hidden from students; admin
+live monitor shows no active trip for that
+bus
+T2 Driver forgets to end a trip Trip auto-closes after 15 minutes without
+fixes and is marked "auto-closed" in
+reports
+T3 GPS fix is inaccurate (over 50 m) Fix is discarded; last good position stays
+on the map
+T4 GPS jumps (implied speed over 120
+km/h)
+Fix is rejected and logged; the next
+consistent fix is accepted
+T5 Driver phone loses GPS in a tunnel or
+building
+Bus shows "last seen" time; after 30 s
+marked stale, after 2 min offline
+T6 Driver phone loses internet App buffers fixes locally and uploads
+them in order when back online; history is
+filled in, live map jumps to the latest fix
+T7 Phone's battery saver kills the app Driver app shows a warning on next open;
+admin sees the bus go offline; onboarding
+checklist covers disabling battery
+optimisation
+T8 Driver denies location permission Start Trip is blocked with a clear
+explanation and a shortcut to settings
+T9 Driver changes to "approximate
+location" only
+App detects low accuracy and asks for
+precise location before the trip starts
+T10 Driver starts a second trip while one is
+active
+Server rejects it; the app offers to resume
+or end the existing trip
+CTMS V1 ­ Edge Case Catalogue
+Page 1 of 4
+Network and server
+ID Situation Required behaviour
+T11 Two phones log in as the same driver Latest session wins; the older one is told it
+was signed out and stops uploading
+T12 Fix arrives with an old timestamp or out
+of order
+Stored for history but not used for the live
+position
+T13 Phone clock is wrong Server uses its own receive time for
+freshness and flags large clock
+differences
+T14 Bus is parked with engine running for a
+long time
+Shown as "stopped" (speed near zero),
+not offline, while fixes keep arriving
+ID Situation Required behaviour
+N1 Free-tier server is asleep on the first
+request
+App shows "Connecting...", retries with
+backoff and keeps any cached routes
+visible; a keep-alive ping reduces this during
+service hours
+N2 Student's WebSocket drops Auto-reconnect with backoff, banner
+"Reconnecting", then refetch live buses so
+the map is correct
+N3 Student has no internet Cached routes and stops stay visible; map
+area shows "You are offline"; no stale bus
+position is shown as live
+N4 Server restarts during a trip Driver app keeps uploading; server rebuilds
+live state from the next fix; the trip is not
+closed
+N5 Database is unavailable Live positions continue from memory;
+writes are queued up to a limit; reports
+show a clear "temporarily unavailable"
+message
+N6 Driver app retries an upload after a
+timeout
+Each fix has a client-generated ID;
+duplicates are ignored
+CTMS V1 ­ Edge Case Catalogue
+Page 2 of 4
+Nearby alerts and ETA
+Alerts follow the student's current location, so false positives are the main risk. The rules
+below favour fewer, more accurate alerts.
+ID Situation Required behaviour
+N7 A client hits a rate limit Server returns 429 with a wait time; apps
+back off; the driver app keeps buffering
+fixes
+N8 Google Maps quota used up or key
+rejected
+Map shows an error state; list view still
+shows buses, status and ETAs; admin is
+notified
+N9 Push delivery fails or a token is invalid Invalid tokens are deleted; one retry; the
+alert also appears in-app next time the
+student opens it
+ID Situation Required behaviour
+A1 Student is already riding the bus Suppressed when the student stays
+within about 50 m of the bus over
+consecutive updates
+A2 Bus passes on a road about 400 m away
+but the student is indoors
+Alert is sent, because distance is
+straight-line; documented limitation, and
+alert mode can be paused
+A3 Bus is within 500 m but moving away No alert, because distance is not
+decreasing
+A4 Two buses approach within a minute of
+each other
+One combined alert, "2 buses are
+nearby", instead of two
+A5 Student's last location is older than 5
+minutes
+No alert; app shows "open the app to
+refresh your location"
+A6 Student denies background location Alert mode cannot be switched on; app
+explains why and offers foreground-only
+alerts while the app is open
+A7 Notification permission denied or
+notifications muted
+Alert settings show a persistent warning;
+no silent failure
+CTMS V1 ­ Edge Case Catalogue
+Page 3 of 4
+Accounts, roles and admin data
+ID Situation Required behaviour
+A8 Bus status is Breakdown, or the trip has
+ended
+No approaching alerts; students see the
+status text instead
+A9 Bus is stationary for a long time ETA is capped on screen as "30+ min"
+instead of a growing number
+ID Situation Required behaviour
+U1 Student signs in with a non-university
+Google account
+Allowed, since a university email is
+optional; accounts with a university email
+can be shown as such later
+U2 Student deletes their account while alert
+mode is on
+Alerts stop immediately; location, push
+token and alert log entries are deleted
+U3 Driver loses their phone or changes
+number
+Admin deactivates the old number and
+adds the new one; old sessions are
+signed out
+U4 OTP not received or expired OTP expires after 5 minutes; resends are
+limited (starting value 3 per 10 minutes);
+the driver is told to contact an admin if
+still stuck
+U5 An admin tries to remove the last admin,
+or themselves while last
+Blocked with an explanation
+U6 Admin edits or deletes a route or stop
+during an active trip
+Delete is blocked while a trip uses it;
+edits apply from the next trip and the
+admin is warned; deletions elsewhere are
+soft, so old reports keep the names
+U7 Directions API fails or finds no route
+between stops
+Route is saved as a draft with an error
+message; it cannot be activated until a
+polyline exists
+U8 The fixed driver is unavailable and a
+substitute drives the bus
+Admin relinks the bus to the substitute's
+number; the change is logged and trips
+show the actual driver
+CTMS V1 ­ Edge Case Catalogue
+Page 4 of 4
+

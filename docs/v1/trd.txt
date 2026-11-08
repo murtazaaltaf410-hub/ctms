@@ -1,0 +1,279 @@
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+CTMS V1 ­ Technical Requirements
+Document (TRD)
+
+ Nov 4, 2026 · @ Waris
+
+This TRD turns the CTMS V1 PRD into engineering decisions: a Flutter app (student, driver,
+admin roles), a FastAPI server and Google Maps, running a 1­3 bus pilot on free-tier
+hosting.
+
+Scope and constraints
+
+Constraint   Value                               Consequence
+Fleet        1­3 buses, 1­2 routes
+                                                 One server instance is enough; no
+Timeline     Under 1 month                       horizontal scaling in V1
+
+Budget       Free tiers only                     Prefer managed services and simple
+                                                 designs over custom infrastructure
+Platforms    Flutter; Android first, iOS if
+             time allows                         Design around sleeping servers,
+                                                 connection caps and API quotas
+Driver device Driver's own phone
+                                                 Background location on iOS is stricter
+Student      Based on the student's current      and needs extra review time
+alerts       location
+                                                 Must survive battery savers and poor
+Team         One developer                       signal
+
+                                                 Needs background location consent and
+                                                 movement-based updates
+
+                                                 Keep one codebase per layer and avoid
+                                                 optional features
+
+Components and responsibilities
+
+Component    Responsibilities                     Does not do
+Flutter app
+             Role-based UI, Google Maps display,  Compute ETAs or decide
+             driver background location upload    alerts
+             with local buffering, student
+             movement reporting, push handling
+
+                                                  Page 1 of 6
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+Component       Responsibilities                                 Does not do
+FastAPI server
+                Auth and role checks, live position              Render maps
+Supabase        state in memory, WebSocket fan-out,
+PostgreSQL      ETA calculation, nearby-alert
+                decisions, reports, announcements
+Firebase Cloud
+Messaging       Users, buses, routes, stops, schedules,          Real-time distribution of
+Google Maps     trips, location history, announcements,          positions
+Platform        alert log
+
+                Delivering push notifications to                 Deciding when to alert
+                student and admin devices
+
+                Map display in the app; Directions API Per-request ETAs
+                once per route to produce the polyline
+
+The server is the single source of truth: apps never talk to the database directly, so role
+rules live in one place.
+
+Live location pipeline
+
+A driver position reaches student screens in five steps, targeting under 5 seconds end to
+end.
+
+  1. The driver app reads GPS in a foreground service and stores each fix locally with a
+     timestamp.
+
+  2. Every few seconds it sends the unsent fixes as one batched POST
+     /trips/{id}/locations .
+
+  3. The server validates the fix, updates the bus's in-memory state and queues it for
+     batched writing to PostgreSQL.
+
+  4. The server pushes the new position and status to all /ws/live subscribers.
+  5. The student app moves the bus marker smoothly to the new position and shows a
+
+     "last updated" time.
+
+Starting parameters, to be tuned during the field test:
+
+Parameter                                        Starting value
+Driver upload interval, moving                   3­5 s
+Driver upload interval, stopped                  15 s
+Max fixes per batch                              20
+
+                                                                              Page 2 of 6
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+Parameter                                        Starting value
+
+Reject fix if accuracy worse than 50 m
+
+Reject fix if implied speed above 120 km/h
+
+Bus shown as "stale" after                       30 s without a fix
+
+Bus shown as "offline" after                     2 min without a fix
+
+Database write batch                             every 10 s
+
+WebSocket heartbeat                              every 25 s
+
+On reconnect, a student client first calls GET /buses/live to get the current state, then
+resumes the WebSocket, so a missed message never leaves a stale map.
+
+ETA and nearby-alert algorithms
+
+ETA to a stop
+
+The server never calls Google per ETA. It stores each route polyline with a cumulative
+distance for every point, then:
+
+  1. Snaps the bus to the nearest polyline point, searching only forward from its last
+     snapped point so loops and parallel roads do not cause jumps.
+
+  2. Takes the remaining distance to the stop as the stop's cumulative distance minus the
+     bus's cumulative distance.
+
+  3. Smooths speed with an exponential moving average over about the last 60 seconds of
+     fixes.
+
+  4. Divides, using a minimum speed so a stationary bus does not give an infinite ETA.
+
+  ETA = \frac{d_{stop} - d_{bus}}{\max(v_{smooth}, v_{min})}
+
+If the stop is already behind the bus on this trip, the app shows "passed" and the next
+scheduled departure when a timetable exists. Starting value for the minimum speed is 10
+km/h; tune it from field data.
+
+Nearby alert
+
+With alert mode on, the student app sends its location only after moving a meaningful
+distance (starting value 100 m) and at least once every few minutes. On each bus position
+update the server checks active buses against students who have recent locations.
+An alert is sent only when all of these hold:
+
+                                                                      Page 3 of 6
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+     The straight-line distance between the student and the bus is under 500 m (stored as
+     a setting, not hard-coded).
+     The bus is on an active trip and its last fix is under 30 seconds old.
+     The student's last location is under 5 minutes old and its accuracy is better than 100
+     m.
+     The bus is getting closer, meaning its distance to the student decreased over the last
+     two fixes.
+     No alert has been sent to this student for this bus on this trip (checked in
+      alert_log ).
+A bounding-box test runs before the exact distance calculation so only nearby students
+are measured. The alert text names the bus and route, for example "Bus 2 (North Campus
+route) is about 400 m away".
+
+Security, authentication and data retention
+
+Authentication and authorisation
+
+     Students and admins: the app signs in with Google and sends the Google ID token;
+     the server verifies it and issues its own short-lived access token plus a refresh token.
+     Drivers: phone number + OTP; the server accepts only numbers an admin has already
+     registered and linked to a bus.
+     Admins: a Google account counts as admin only if its email is in the admin list in the
+     database; the first admin is seeded manually.
+     Roles: every endpoint declares the roles allowed; the role is read from the database,
+     not trusted from the token alone.
+     Ownership rules: a driver can only post positions for their own bus's active trip; a
+     student can only read and write their own account and location.
+
+Protection
+
+     HTTPS everywhere; no secrets in the app. Server secrets live in environment variables
+     on the host.
+     Google Maps keys restricted by app signature and by API; the Directions key stays on
+     the server only.
+     Rate limits per user and per IP, with tighter limits on OTP requests and location
+     uploads.
+     Input validation on all coordinates (range, accuracy, speed) and all admin text.
+
+                                                                                                                                                                                                                                              Page 4 of 6
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+     Supabase row-level security enabled as a second layer, even though only the server
+     connects to the database.
+
+Data retention (proposed, confirm with the university)
+
+Data                  Kept for                        Notes
+Student location      Latest value only, treated as   Never used for history or
+                      expired after 5 minutes         analytics
+Bus location history  90 days, then deleted or        Used for reports and trip replay
+                      reduced to trip summaries
+Trips and             Whole pilot                     Small volume
+announcements
+Student account       Until the student deletes it    Deletion removes personal data
+                                                      and alert log entries
+Push tokens           Until sign-out or token expiry  Removed if FCM reports an
+                                                      invalid token
+
+Free-tier limits and scaling path
+
+The pilot fits free tiers if two things are handled: sleeping servers and database growth.
+Exact free limits change, so check each provider's current page before launch; the items
+below are what to verify.
+
+Service               What to verify before launch    Design response
+Backend host (Render
+or Railway free)      Whether the service sleeps      Keep-alive ping during service
+                      when idle, monthly hours,       hours; clients reconnect and
+Supabase free         WebSocket support               refetch state
+
+Firebase (FCM, phone  Database size cap and whether Downsample history; keep the
+auth)
+Google Maps Platform  idle projects pause             project active during the pilot
+
+                      Free SMS quota for OTP          Only 1­3 driver accounts, so
+                                                      volume is tiny
+
+                      Free monthly usage per API      Quotas and budget alerts set;
+                      and billing requirement         routes generated once; ETAs
+                                                      computed on the server
+
+                                                                       Page 5 of 6
+CTMS V1 ­ Technical Requirements Document (TRD)
+
+Database growth estimate (assumes 3 buses running 10 hours a day, which you should
+replace with the real timetable): one fix every 4 seconds gives about 27,000 rows a day, or
+about 2.4 million rows over 90 days. Keeping history at one fix per 10 seconds cuts that to
+about 1 million rows, roughly on the order of 100 MB with indexes (approximate).
+
+Scaling path beyond the pilot: move to a paid always-on instance; add Redis pub/sub so
+several server workers share live positions; use PostGIS for proximity queries; partition
+the locations table by month; add a web admin dashboard.
+
+Technology decisions and alternatives
+
+Decision       Chosen                            Alternative           Why
+
+Live updates   WebSocket from                    Polling every few     Lower latency and less
+to students    FastAPI                           seconds               traffic; polling stays as
+                                                                       fallback if free hosting
+Driver upload REST batches                       WebSocket from        drops sockets
+                                                 driver
+                                                                       A dropped socket
+ETA            Server-side from stored           Google Directions or  never loses data;
+               polyline and smoothed             Distance Matrix per   batching saves battery
+Student alert  speed                             request
+logic                                                                  No per-request cost,
+               Server decides, FCM               On-device geofence    works on free quotas
+               delivers
+                                                                       One place to test and
+Database       Supabase PostgreSQL SQLite on the server                tune; works the same
+                                                                       on all phones
+Live state     In-memory on one                  Redis
+               instance                                                Survives restarts on
+                                                                       free hosting; managed
+Admin          Inside the Flutter app            Separate web          backups
+interface                                        dashboard
+                                                                       One instance is
+Student alert Straight-line, 500 m,              Distance along the    enough for 1­3 buses;
+                                                 road                  Redis is the first
+distance       configurable                                            scaling step
+
+                                                                       One codebase and the
+                                                                       fastest route to the
+                                                                       pilot
+
+                                                                       Simpler; road distance
+                                                                       is a later refinement
+
+                                                                       Page 6 of 6
+

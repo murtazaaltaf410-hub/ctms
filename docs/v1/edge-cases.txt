@@ -1,0 +1,195 @@
+CTMS V1 ­ Edge Case Catalogue
+
+CTMS V1 ­ Edge Case Catalogue
+
+ N ov 4, 2026 · @ Waris
+
+This catalogue lists 40 situations that will happen during the pilot, with the behaviour the
+apps and server must show; each ID is also a test case in the Test Plan. Values like 30
+seconds match the TRD.
+
+Tracking and GPS
+
+ID Situation                                  Required behaviour
+T1 Driver forgets to start a trip
+                                              Bus stays hidden from students; admin
+T2 Driver forgets to end a trip               live monitor shows no active trip for that
+                                              bus
+T3 GPS fix is inaccurate (over 50 m)
+                                              Trip auto-closes after 15 minutes without
+T4 GPS jumps (implied speed over 120          fixes and is marked "auto-closed" in
+         km/h)                                reports
+
+T5 Driver phone loses GPS in a tunnel or      Fix is discarded; last good position stays
+         building                             on the map
+
+T6 Driver phone loses internet                Fix is rejected and logged; the next
+                                              consistent fix is accepted
+T7 Phone's battery saver kills the app
+                                              Bus shows "last seen" time; after 30 s
+T8 Driver denies location permission          marked stale, after 2 min offline
+
+T9 Driver changes to "approximate             App buffers fixes locally and uploads
+         location" only                       them in order when back online; history is
+                                              filled in, live map jumps to the latest fix
+T10 Driver starts a second trip while one is
+         active                               Driver app shows a warning on next open;
+                                              admin sees the bus go offline; onboarding
+                                              checklist covers disabling battery
+                                              optimisation
+
+                                              Start Trip is blocked with a clear
+                                              explanation and a shortcut to settings
+
+                                              App detects low accuracy and asks for
+                                              precise location before the trip starts
+
+                                              Server rejects it; the app offers to resume
+                                              or end the existing trip
+
+                                              Page 1 of 4
+CTMS V1 ­ Edge Case Catalogue
+
+ID Situation                                 Required behaviour
+
+T11 Two phones log in as the same driver     Latest session wins; the older one is told it
+                                             was signed out and stops uploading
+
+T12 Fix arrives with an old timestamp or out Stored for history but not used for the live
+
+of order                                     position
+
+T13 Phone clock is wrong                     Server uses its own receive time for
+                                             freshness and flags large clock
+                                             differences
+
+T14 Bus is parked with engine running for a  Shown as "stopped" (speed near zero),
+         long time                           not offline, while fixes keep arriving
+
+Network and server
+
+ID Situation                                 Required behaviour
+N1 Free-tier server is asleep on the first
+                                             App shows "Connecting...", retries with
+         request                             backoff and keeps any cached routes
+                                             visible; a keep-alive ping reduces this during
+N2 Student's WebSocket drops                 service hours
+
+N3 Student has no internet                   Auto-reconnect with backoff, banner
+                                             "Reconnecting", then refetch live buses so
+N4 Server restarts during a trip             the map is correct
+
+N5 Database is unavailable                   Cached routes and stops stay visible; map
+                                             area shows "You are offline"; no stale bus
+N6 Driver app retries an upload after a      position is shown as live
+         timeout
+                                             Driver app keeps uploading; server rebuilds
+                                             live state from the next fix; the trip is not
+                                             closed
+
+                                             Live positions continue from memory;
+                                             writes are queued up to a limit; reports
+                                             show a clear "temporarily unavailable"
+                                             message
+
+                                             Each fix has a client-generated ID;
+                                             duplicates are ignored
+
+                                                                                   Page 2 of 4
+CTMS V1 ­ Edge Case Catalogue
+
+ID Situation                                Required behaviour
+
+N7 A client hits a rate limit               Server returns 429 with a wait time; apps
+                                            back off; the driver app keeps buffering
+                                            fixes
+
+N8 Google Maps quota used up or key         Map shows an error state; list view still
+         rejected                           shows buses, status and ETAs; admin is
+                                            notified
+
+N9 Push delivery fails or a token is invalid Invalid tokens are deleted; one retry; the
+                                                                    alert also appears in-app next time the
+                                                                    student opens it
+
+Nearby alerts and ETA
+
+Alerts follow the student's current location, so false positives are the main risk. The rules
+below favour fewer, more accurate alerts.
+
+ID Situation                                Required behaviour
+A1 Student is already riding the bus
+                                            Suppressed when the student stays
+A2 Bus passes on a road about 400 m away    within about 50 m of the bus over
+         but the student is indoors         consecutive updates
+
+A3 Bus is within 500 m but moving away      Alert is sent, because distance is
+                                            straight-line; documented limitation, and
+A4 Two buses approach within a minute of    alert mode can be paused
+         each other
+                                            No alert, because distance is not
+A5 Student's last location is older than 5  decreasing
+         minutes
+                                            One combined alert, "2 buses are
+A6 Student denies background location       nearby", instead of two
+
+A7 Notification permission denied or        No alert; app shows "open the app to
+         notifications muted                refresh your location"
+
+                                            Alert mode cannot be switched on; app
+                                            explains why and offers foreground-only
+                                            alerts while the app is open
+
+                                            Alert settings show a persistent warning;
+                                            no silent failure
+
+                                                                                       Page 3 of 4
+CTMS V1 ­ Edge Case Catalogue
+
+ID Situation                                 Required behaviour
+
+A8 Bus status is Breakdown, or the trip has  No approaching alerts; students see the
+         ended                               status text instead
+
+A9 Bus is stationary for a long time         ETA is capped on screen as "30+ min"
+                                             instead of a growing number
+
+Accounts, roles and admin data
+
+ID Situation                                 Required behaviour
+
+U1 Student signs in with a non-university    Allowed, since a university email is
+         Google account                      optional; accounts with a university email
+                                             can be shown as such later
+
+U2 Student deletes their account while alert Alerts stop immediately; location, push
+
+mode is on                                   token and alert log entries are deleted
+
+U3 Driver loses their phone or changes       Admin deactivates the old number and
+         number                              adds the new one; old sessions are
+                                             signed out
+
+U4 OTP not received or expired               OTP expires after 5 minutes; resends are
+                                             limited (starting value 3 per 10 minutes);
+                                             the driver is told to contact an admin if
+                                             still stuck
+
+U5 An admin tries to remove the last admin, Blocked with an explanation
+         or themselves while last
+
+U6 Admin edits or deletes a route or stop    Delete is blocked while a trip uses it;
+         during an active trip               edits apply from the next trip and the
+                                             admin is warned; deletions elsewhere are
+                                             soft, so old reports keep the names
+
+U7 Directions API fails or finds no route    Route is saved as a draft with an error
+         between stops                       message; it cannot be activated until a
+                                             polyline exists
+
+U8 The fixed driver is unavailable and a     Admin relinks the bus to the substitute's
+         substitute drives the bus           number; the change is logged and trips
+                                             show the actual driver
+
+                                                                         Page 4 of 4
+

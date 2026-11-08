@@ -1,0 +1,298 @@
+CTMS V1 ­ API Specification
+
+CTMS V1 ­ API Specification
+
+ N ov 4, 2026 · @ Waris
+
+All V1 endpoints are JSON over HTTPS under /api/v1 , authenticated with a bearer
+token, and follow the TRD; FastAPI will also serve the generated OpenAPI page at /docs
+for testing.
+
+Conventions
+
+Topic                        Rule
+
+Base URL                     https://<host>/api/v1
+
+Auth header                  Authorization: Bearer <access_token> on
+                             every call except sign-in
+
+Roles                        student , driver , admin ; each endpoint lists who
+                             may call it
+
+Time                         UTC ISO 8601 strings, e.g. 2026-11-04T09:30:00Z
+
+Coordinates lat and lng as decimal degrees; distances in
+                       metres; speed in metres per second
+
+IDs                          UUIDs
+
+Lists                        ?limit= (default 50, max 200) and ?cursor= ;
+                             responses return next_cursor
+
+Idempotency Location fixes carry a client-generated fix_id ;
+                       repeats are ignored
+
+Errors                       HTTP status + body { "error": { "code":
+
+                             "TRIP_ALREADY_ACTIVE", "message": "..." } }
+
+Rate limits                  429 with Retry-After seconds
+
+                                                                                 Page 1 of 7
+CTMS V1 ­ API Specification
+
+Auth and account endpoints
+
+Method and path              Who     Request          Response and notes
+                             Public
+POST /auth/google                    { id_token }     { access_token,
+
+POST                         Public  { phone }        refresh_token, user } ;
+/auth/phone/request                                   creates a student on first sign-
+POST                         Public  { phone, otp }   in; admins matched by email
+/auth/phone/verify                                    list
+POST /auth/refresh           Any     { refresh_token
+POST /auth/logout            Any     }                202; OTP sent only if the
+GET /me                                               number is a registered driver,
+PATCH /me                            none             same response otherwise
+PUT /me/push-token
+DELETE /me                   Any     none             Tokens and user ; 400
+                                                      OTP_INVALID or OTP_EXPIRED
+                             Any     { name }
+                                                      New access token; old refresh
+                             Any     { token,         token rotated
+                                     platform }
+                                                      204; revokes the refresh token
+                             Student none             and removes the push token
+
+                                                      Current user, role, linked bus
+                                                      for drivers
+
+                                                      Updated user
+
+                                                      204
+
+                                                      204; deletes personal data,
+                                                      location and alert log
+
+A driver signing in on a second device invalidates the first device's session
+( SESSION_REPLACED ).
+
+Driver, trip and tracking endpoints
+
+Method and path              Who     Request          Response and notes
+                             Driver  none
+GET /trips/active                                     The driver's active trip or
+
+                                                      null
+
+                                                                               Page 2 of 7
+CTMS V1 ­ API Specification
+
+Method and path              Who     Request             Response and notes
+                             Driver                      201 trip with type scheduled
+POST /trips/start                    { route_id }        or ad_hoc; 409
+                             Driver
+POST                         (own    (optional; default  TRIP_ALREADY_ACTIVE
+/trips/{id}/locations        trip)   route used if
+POST                         Driver  omitted)            { accepted, rejected }
+/trips/{id}/status           (own
+POST /trips/{id}/end         trip)   { fixes: [...]
+                             Driver
+                             (own    } , up to 20
+                             trip)
+                                     { status, note      204; status is on_time ,
+                                     }                   delayed or breakdown ; note
+                                                         up to 140 characters
+                                     none
+                                                         Trip summary with
+                                                         distance_m , started_at ,
+
+                                                         ended_at
+
+A location batch looks like this:
+
+  {
+      "fixes": [
+         {
+             "fix_id": "b6f1c2d0-5a38-4d52-9c10-3f2a77e1a001",
+             "lat": 34.1260,
+             "lng": 74.8370,
+             "accuracy": 8.5,
+             "speed": 6.2,
+             "heading": 140,
+             "recorded_at": "2026-11-04T09:30:04Z"
+         }
+      ]
+
+  }
+
+Each rejected fix returns a reason: ACCURACY_TOO_LOW , SPEED_IMPLAUSIBLE , DUPLICATE
+or OUT_OF_ORDER . Rejected fixes never fail the whole request, so the driver app can clear
+its buffer after any 200 response. The coordinates above are illustrative only.
+
+                                                         Page 3 of 7
+CTMS V1 ­ API Specification
+
+Student, route and announcement endpoints
+
+Method and path              Who        Request        Response and notes
+                                        none
+GET /buses/live              Any                       Active buses: bus_id ,
+                             signed-in                 label , route_id , lat ,
+                             user                      lng , heading , speed ,
+                                                       status , note ,
+GET /routes                  Any        none           last_fix_at , state
+                                        none           ( live , stale , offline )
+GET /routes/{id} Any
+                                        ?route_id=     Active routes with name
+GET /schedules               Any                       and stop count
+                             Any        none
+GET                                                    Route with encoded
+/stops/{id}/eta                                        polyline and ordered stops
+
+POST                         Student    { lat, lng,    Timetable slots for the route
+/me/location                 Student    accuracy,
+                             Any        recorded_at }  For each active bus on the
+PUT /me/alert-                          { enabled }    stop's route: eta_seconds ,
+settings                                               distance_m , state ; plus
+                                        ?cursor=       next_scheduled time if any
+GET
+/announcements                                         204; stores only the latest
+                                                       value
+
+                                                       Updated settings; enabling
+                                                       requires a registered push
+                                                       token
+
+                                                       Newest first; urgent flag
+                                                       included
+
+When no bus is active on a route, GET /stops/{id}/eta returns an empty list with
+next_scheduled , never an error.
+
+Admin endpoints
+
+All require the admin role. Deletes are soft (an active flag) so history keeps names.
+
+                                                                                  Page 4 of 7
+CTMS V1 ­ API Specification
+
+Method and path              Request                      Notes
+GET/POST /admin/buses ,
+                             { label, plate, active }     Deactivating is
+PATCH /admin/buses/{id}                                   blocked while the bus
+                             { name, phone, bus_id,       has an active trip
+GET/POST /admin/drivers ,    active }
+                             { name, active }             One driver per bus;
+PATCH /admin/drivers/{id}                                 changing bus_id is
+                             { name, lat, lng, sequence   logged
+GET/POST /admin/routes ,     }
+                                                          Creating or changing
+PATCH /admin/routes/{id}                                  stops regenerates the
+                                                          polyline once; failure
+POST                                                      leaves a draft with
+
+/admin/routes/{id}/stops ,                                POLYLINE_FAILED
+
+PATCH /admin/stops/{id}                                   Edits apply from the
+                                                          next trip
+GET/POST /admin/schedules ,
+                             { route_id, departure_time, Optional; ad hoc trips
+PATCH
+/admin/schedules/{id}        days_of_week }               always allowed
+
+POST /admin/announcements ,  { title, body, urgent, push  push: true sends a
+PATCH , DELETE               }                            notification to all
+                                                          students
+/admin/announcements/{id}
+                             { email }                    Last admin cannot be
+GET/POST /admin/admins ,                                  removed
+                                                          ( LAST_ADMIN )
+DELETE /admin/admins/{id}
+                             ?from=&to=&bus_id=&cursor=   Trip list with driver,
+GET /admin/trips                                          times, distance_m ,
+                                                          avg_speed ,
+GET /admin/trips/{id}/path                                closed_by (driver or
+                                                          auto)
+GET /admin/reports/summary
+                             none                         Ordered positions for
+GET/PUT /admin/settings                                   trip replay
+
+                             ?from=&to=                   Totals per bus: trips,
+                                                          distance, running time
+
+                             { alert_radius_m }           Alert radius, starting
+                                                          value 500
+
+                                                                          Page 5 of 7
+CTMS V1 ­ API Specification
+
+WebSocket protocol and error codes
+
+Live channel
+
+Students and admins connect to wss://<host>/api/v1/ws/live . The first message must
+be the token, sent in the message body rather than the URL so it does not appear in
+server logs; the server closes the socket if it is missing within 5 seconds.
+
+Direction                    Message                               Meaning
+Client to                                                          Authenticate the socket
+server                       { "type": "auth", "token": "..."
+Client to                    }                                     Heartbeat, every 25 seconds
+server
+Server to                    { "type": "ping" }
+client
+                             { "type": "bus_position",             New position
+Server to                    "bus_id", "trip_id", "lat", "lng",
+client                       "heading", "speed", "recorded_at"
+Server to                    }
+client
+                             { "type": "bus_status", "bus_id",     Driver set a status
+Server to                    "status", "note" }
+client
+Server to                    { "type": "trip_started" } and {      Bus appears or disappears from
+client                       "type": "trip_ended" } with bus_id ,  the map
+
+                             trip_id
+
+                             { "type": "announcement", "id",       New announcement while the
+                             "title", "urgent" }                   app is open
+
+                             { "type": "pong" }                    Heartbeat reply
+
+The socket carries no history. After any reconnect the client calls GET /buses/live
+before resuming, as in the TRD.
+
+Error codes
+
+HTTP Code                                                          Meaning
+                                                                   Field missing or out of range
+400  VALIDATION_ERROR                                              Phone sign-in failed
+
+400  OTP_INVALID , OTP_EXPIRED
+
+                                                                                        Page 6 of 7
+CTMS V1 ­ API Specification
+
+HTTP Code                                       Meaning
+                                                Sign in again
+401  TOKEN_EXPIRED , TOKEN_INVALID ,
+                                                Role or ownership check
+     SESSION_REPLACED                           failed
+                                                Unknown ID
+403  FORBIDDEN_ROLE , NOT_YOUR_TRIP             State conflict
+                                                Route could not be generated
+404  NOT_FOUND                                  Wait for Retry-After
+                                                Temporary; retry
+409  TRIP_ALREADY_ACTIVE , LAST_ADMIN , IN_USE
+
+422  POLYLINE_FAILED
+
+429  RATE_LIMITED
+
+503  DB_UNAVAILABLE
+
+                                                Page 7 of 7
+
