@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-import jwt
+import jwl
 
 from app.errors import TokenExpired, TokenInvalid
 
