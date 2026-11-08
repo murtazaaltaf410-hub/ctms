@@ -34,11 +34,11 @@ from uuid import UUID
 
 from fastapi import FastAPI
 
+from app import clock
 from app.live import USER_DELETED, on_shutdown, on_startup, subscribe
 from app.live.hooks import FixEvent, TripEvent, register_fix_listener, register_trip_listener
 from app.modules.alerts.geo import bounding_box, haversine_m
 from app.push import PushJob, background_conn, get_push
-from app.schemas import utcnow
 
 log = logging.getLogger("ctms.alerts")
 
@@ -117,9 +117,9 @@ class AlertEngine:
             log.warning("alert queue full; dropped the oldest fix")
         self.queue.put_nowait(ev)
 
-    async def process(self, app: FastAPI, ev: FixEvent, now: datetime | None = None) -> list[UUID]:
-        """Evaluate one fix; returns the students alerted (tests use this directly)."""
-        now = now or utcnow()
+    async def process(self, app: FastAPI, ev: FixEvent) -> list[UUID]:
+        """Evaluate one fix at `clock.now()`; returns the students alerted (tests call this directly)."""
+        now = clock.now()
         if ev.trip_status == "breakdown" or ev.trip_id in self.state.ended_trips:
             return []
         config = app.state.config

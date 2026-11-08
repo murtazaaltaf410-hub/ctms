@@ -7,9 +7,16 @@ from datetime import timedelta
 
 import pytest
 
-from app.schemas import utcnow
+from app import clock
 from tests.alerts_support import engine, push, world  # noqa: F401
 from tests.conftest import bearer
+from tests.tracking_support import fake_clock  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _frozen(fake_clock):
+    """Location age and clamping are judged on the frozen `app.clock`."""
+    return fake_clock
 
 
 @pytest.fixture
@@ -20,7 +27,7 @@ async def student_auth(google_login) -> tuple[str, dict]:
 
 def loc(lat=34.131, lng=74.837, accuracy=15.0, age_s=5.0, **extra) -> dict:
     return {"lat": lat, "lng": lng, "accuracy": accuracy,
-            "recorded_at": (utcnow() - timedelta(seconds=age_s)).isoformat(), **extra}
+            "recorded_at": (clock.now() - timedelta(seconds=age_s)).isoformat(), **extra}
 
 
 async def stored(con, user_id):
@@ -39,16 +46,17 @@ async def test_location_stores_only_the_latest(client, con, student_auth):
     assert (await stored(con, sid))["lat"] == pytest.approx(34.2)
 
 
-@pytest.mark.parametrize("body, field", [
-    (loc(accuracy=100), "accuracy"),
-    (loc(age_s=301), "recorded_at"),
-    (loc(lat=91), "lat"),
-    (loc(lng=-181), "lng"),
-    (loc(accuracy=-1), "accuracy"),
-    ({"lat": 34.1, "lng": 74.8, "accuracy": 10, "recorded_at": "2026-11-08T10:00:00"}, "recorded_at"),
+@pytest.mark.parametrize("kwargs, field", [
+    ({"accuracy": 100}, "accuracy"),
+    ({"age_s": 301}, "recorded_at"),
+    ({"lat": 91}, "lat"),
+    ({"lng": -181}, "lng"),
+    ({"accuracy": -1}, "accuracy"),
+    ({"recorded_at": "2026-11-08T10:00:00"}, "recorded_at"),  # no timezone
 ])
-async def test_location_validation(client, con, student_auth, body, field):
+async def test_location_validation(client, con, student_auth, kwargs, field):
     sid, auth = student_auth
+    body = loc(**kwargs)
     resp = await client.post("/api/v1/me/location", json=body, headers=auth)
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
@@ -56,12 +64,19 @@ async def test_location_validation(client, con, student_auth, body, field):
     assert await stored(con, sid) is None
 
 
-async def test_location_future_timestamp_is_clamped(client, con, student_auth):
+async def test_location_future_timestamp_is_clamped(client, con, student_auth, fake_clock):
     sid, auth = student_auth
-    before = utcnow()
     assert (await client.post("/api/v1/me/location", json=loc(age_s=-3600), headers=auth)).status_code == 204
-    assert (await stored(con, sid))["recorded_at"] <= utcnow()
-    assert (await stored(con, sid))["recorded_at"] >= before
+    assert (await stored(con, sid))["recorded_at"] == fake_clock.current
+
+
+async def test_location_age_limit_follows_the_app_clock(client, con, student_auth, fake_clock):
+    _sid, auth = student_auth
+    body = loc(age_s=0)
+    fake_clock.advance(299)
+    assert (await client.post("/api/v1/me/location", json=body, headers=auth)).status_code == 204
+    fake_clock.advance(2)
+    assert (await client.post("/api/v1/me/location", json=body, headers=auth)).status_code == 400
 
 
 async def test_location_is_student_only(client, create_user, driver_login, con, google_login):

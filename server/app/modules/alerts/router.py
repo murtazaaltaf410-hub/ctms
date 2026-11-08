@@ -13,11 +13,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import AwareDatetime, Field
 
+from app import clock
 from app.db import Conn
 from app.deps import CurrentUser, require_role
 from app.errors import ValidationFailed
 from app.modules.alerts import engine as _engine  # noqa: F401  (registers listeners)
-from app.schemas import ApiModel, UtcDateTime, utcnow
+from app.schemas import ApiModel, UtcDateTime
 
 router = APIRouter(prefix="/me", tags=["alerts"])
 
@@ -59,7 +60,7 @@ async def post_location(body: LocationIn, request: Request, user: Student, con: 
     store = request.app.state.settings_store
     max_accuracy = float(await store.get("student_fix_max_accuracy_m", con))
     max_age = float(store.get_cached("student_fix_max_age_s"))
-    now = utcnow()
+    now = clock.now()
     if body.accuracy >= max_accuracy:
         raise ValidationFailed(f"accuracy: must be under {max_accuracy:g} m")
     if body.recorded_at < now - timedelta(seconds=max_age):

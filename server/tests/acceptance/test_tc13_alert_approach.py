@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 from scripts.simulate import offset
-from tests.acceptance.sim_support import alert_student, drain_alerts, plan
+from tests.acceptance.sim_support import alert_student, drain_alerts, plan, report_location
 
 
 def alerted_distance(body: str) -> int:
@@ -78,6 +78,8 @@ async def test_tc13_new_trip_alerts_again(client, live_app, push, sim_trip, sim_
     await player.play(events, after=after)
     end_t = events[-1].t
     await player.end(end_t + 60)
+    # The app re-reports at least every few minutes (TRD p.3); the first report is older than 5 min now.
+    await report_location(client, s.headers, *route.stop_point(2))
     trip2 = await start_trip(driver)
     from tests.acceptance.sim_support import SimPlayer
 

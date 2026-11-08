@@ -17,13 +17,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import Field, model_validator
 
+from app import clock
 from app.audit import write_audit
 from app.db import Conn
 from app.deps import AuthUser, CurrentUser, require_role
 from app.errors import NotFound, ValidationFailed
 from app.live.hub import broadcast
 from app.push import PushJob, get_push
-from app.schemas import ApiModel, UtcDateTime, utcnow
+from app.schemas import ApiModel, UtcDateTime
 
 router = APIRouter(tags=["announcements"])
 
@@ -99,7 +100,7 @@ async def list_announcements(user: AuthUser, con: Conn,
 
 @router.post("/admin/announcements", response_model=AnnouncementOut, status_code=status.HTTP_201_CREATED)
 async def create_announcement(body: AnnouncementIn, request: Request, user: Admin, con: Conn) -> AnnouncementOut:
-    now = utcnow()
+    now = clock.now()
     async with con.transaction():
         row = await con.fetchrow(
             f"""insert into public.announcements (title, body, urgent, created_by, created_at, updated_at)

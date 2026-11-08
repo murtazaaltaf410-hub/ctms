@@ -201,12 +201,12 @@ async def alert_student(client: httpx.AsyncClient, google_login: Callable, n: in
 
 async def report_location(client: httpx.AsyncClient, headers: dict[str, str], lat: float, lng: float, *,
                           accuracy: float = 15.0) -> None:
-    """POST /me/location. Student fixes are judged against the real wall clock (the alert engine
-    and this endpoint use `utcnow`, not the injectable clock), so they are stamped with real time."""
-    from app.schemas import iso_utc, utcnow
+    """POST /me/location, stamped with the injectable clock (the alert engine and this endpoint
+    judge student fixes against `app.clock`, which the simulator moves)."""
+    from app.schemas import iso_utc
 
     resp = await client.post("/api/v1/me/location", headers=headers,
-                             json={"lat": lat, "lng": lng, "accuracy": accuracy, "recorded_at": iso_utc(utcnow())})
+                             json={"lat": lat, "lng": lng, "accuracy": accuracy, "recorded_at": iso_utc(clock.now())})
     assert resp.status_code == 204, resp.text
 
 

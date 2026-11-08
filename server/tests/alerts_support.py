@@ -17,11 +17,11 @@ from uuid import UUID
 import asyncpg
 import pytest
 
+from app import clock
 from app.live.hooks import FixEvent
 from app.modules.alerts.engine import AlertEngine, get_engine
 from app.modules.alerts.geo import offset
 from app.push import FakeSender, PushDispatcher, use_connection
-from app.schemas import utcnow
 
 BASE = (34.1310, 74.8370)  # University of Kashmir, North Campus (approx.)
 _seq = count(1)
@@ -38,7 +38,7 @@ class Trip:
     def fix(self, north_m: float, east_m: float = 0.0, *, at: datetime | None = None,
             status: str = "on_time", origin: tuple[float, float] = BASE) -> FixEvent:
         """A fix `north_m`/`east_m` metres from `origin` (the students' default spot)."""
-        at = at or utcnow()
+        at = at or clock.now()
         lat, lng = offset(*origin, north_m=north_m, east_m=east_m)
         return FixEvent(trip_id=self.trip_id, bus_id=self.bus_id, route_id=self.route_id,
                         bus_label=self.bus_label, route_name=self.route_name, lat=lat, lng=lng,
@@ -105,7 +105,7 @@ async def set_location(con: asyncpg.Connection, user_id: UUID, *, north_m: float
            values ($1, $2, $3, $4, $5)
            on conflict (user_id) do update set lat = excluded.lat, lng = excluded.lng,
              accuracy_m = excluded.accuracy_m, recorded_at = excluded.recorded_at""",
-        user_id, lat, lng, accuracy, utcnow() - timedelta(seconds=age_s))
+        user_id, lat, lng, accuracy, clock.now() - timedelta(seconds=age_s))
 
 
 async def alert_count(con: asyncpg.Connection, student_id: UUID) -> int:
