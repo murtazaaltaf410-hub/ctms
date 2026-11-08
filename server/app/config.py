@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     rate_locations_per_user: int = 60
     rate_locations_per_user_window_s: int = 60
 
+    # --- Phase 5: admin API, Routes API (ADR-8), reports -------------------------
+    # Google Routes API computeRoutes; the key is GOOGLE_DIRECTIONS_KEY (runbook name).
+    routes_api_url: str = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    routes_api_timeout_s: float = 10
+    routes_api_max_intermediates: int = 25  # Routes API limit -> at most 27 stops per route
+    admin_list_limit_default: int = 50      # API spec: ?limit default 50, max 200
+    admin_list_limit_max: int = 200
+    report_csv_max_rows: int = 10000
+    alert_radius_min_m: float = 50          # PUT /admin/settings bounds for alert_radius_m
+    alert_radius_max_m: float = 5000
+
     # --- Thresholds: same keys as the `settings` table ------------------------
     gps_accuracy_max_m: float = 50
     max_speed_kmh: float = 120

@@ -130,6 +130,19 @@ slowapi facts that drove the rejection (ctx7 `_autodocs/api-reference/extension.
 - `asyncpg.CannotConnectNowError` (with `PostgresConnectionError`, `OSError`, `TimeoutError`) → 503 `DB_UNAVAILABLE`.
 - Installed versions (P2): fastapi 0.162.2, asyncpg 0.32.0, PyJWT 2.15.1, pydantic 2.14.3, pydantic-settings 2.16.2, firebase-admin 7.7.0, google-auth 2.62.1.
 
+### Added by P5: Google Routes API `computeRoutes` (ADR-8; supersedes the Directions entry above)
+context7 has no index for the Routes API. The searches tried were "Google Maps Routes API" and `/websites/developers_google`, and they returned only the field-mask and migration pages. The details below were read from the official docs on 2026-11-08: developers.google.com/maps/documentation/routes/compute_route_directions, …/routes/intermed_waypoints, …/routes/reference/rest/v2/TopLevel/computeRoutes.
+
+| API | Usage | Source |
+|---|---|---|
+| Endpoint | `POST https://routes.googleapis.com/directions/v2:computeRoutes`, JSON body | compute_route_directions |
+| Headers | `X-Goog-Api-Key: <key>`. `X-Goog-FieldMask: routes.polyline.encodedPolyline,routes.distanceMeters` is required, because there is no default field set | compute_route_directions |
+| Body | `origin`, `destination`, `intermediates[]` (each a Waypoint `{"location": {"latLng": {"latitude", "longitude"}}}`). Also `travelMode: "DRIVE"`, `routingPreference: "TRAFFIC_UNAWARE"`, `polylineQuality: "HIGH_QUALITY"`, `polylineEncoding: "ENCODED_POLYLINE"`, `computeAlternativeRoutes: false`, `units: "METRIC"` | REST reference |
+| Limits | Up to 25 `intermediates`, so at most 27 stops per route. Requests with 11–25 intermediates are billed at a higher rate | intermed_waypoints |
+| Response | `{"routes": [{"distanceMeters": int, "polyline": {"encodedPolyline": str}}]}`. An empty or missing `routes` means no route was found. Errors are non-200 with `{"error": {"code", "message", "status"}}` | compute_route_directions, REST reference |
+| Client | `httpx.AsyncClient(timeout=…, transport=…)`, then `.post(url, json=, headers=)`. Tests use `httpx.MockTransport`. Exceptions: `httpx.TimeoutException`, `httpx.HTTPError` | httpx (already in the stack) |
+| Code | `server/app/integrations/routes_api.py` (`GoogleRoutesClient`, `FakeRouteProvider`). The polyline codec is in `server/app/modules/routes/geo.py` (to switch to `app/geo` once P3 lands it) | |
+
 ## App (Flutter, Dart)
 
 ### google_sign_in **v7.x** — ctx7: `/websites/pub_dev_packages_google_sign_in`, `/websites/pub_dev_google_sign_in`

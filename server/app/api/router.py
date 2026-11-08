@@ -31,3 +31,6 @@ api_router.include_router(alerts_router)
 api_router.include_router(announcements_router)
 
 # --- Phase 5: admin, buses, routes, schedules, reports, settings (add here) -------
+from app.modules.admin.router import router as admin_router  # noqa: E402
+
+api_router.include_router(admin_router)
