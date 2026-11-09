@@ -14,6 +14,9 @@ abstract interface class FixBuffer {
   Future<List<DriverFix>> next(String tripId, int limit);
   Future<void> remove(List<DriverFix> fixes);
   Future<int> count(String tripId);
+
+  /// Drops every buffered fix of a trip (the trip ended on the server).
+  Future<void> clearTrip(String tripId);
 }
 
 class SqliteFixBuffer implements FixBuffer {
@@ -72,6 +75,15 @@ class SqliteFixBuffer implements FixBuffer {
   }
 
   @override
+  Future<void> clearTrip(String tripId) async {
+    await (await _database).delete(
+      'driver_fixes',
+      where: 'trip_id = ?',
+      whereArgs: [tripId],
+    );
+  }
+
+  @override
   Future<int> count(String tripId) async =>
       Sqflite.firstIntValue(
         await (await _database).rawQuery(
@@ -123,6 +135,9 @@ class DriverTracker {
   DateTime? _retryAt;
   DateTime? _lastCapturedAt;
   bool _flushing = false;
+
+  /// Called when an upload finds the trip gone (404): the server ended it.
+  void Function(String tripId)? onTripGone;
 
   Future<void> start(Trip trip, int batchLimit) async {
     _initialiseForegroundService();
@@ -180,6 +195,10 @@ class DriverTracker {
         _retryAt = DateTime.now().add(delay);
         _retryTimer?.cancel();
         _retryTimer = Timer(delay, () => unawaited(flush(tripId, batchLimit)));
+        return;
+      }
+      if (e.code == ApiErrorCode.notFound || e.statusCode == 404) {
+        onTripGone?.call(tripId);
         return;
       }
       // Authentication failures already flow through AuthInterceptor; do not

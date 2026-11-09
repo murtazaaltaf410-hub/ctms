@@ -62,6 +62,8 @@ class Trip {
     required this.closedBy,
     required this.distanceM,
     required this.lastFixAt,
+    this.movedAt,
+    this.arrivedAt,
     this.durationS,
     this.avgSpeedMps,
   });
@@ -84,6 +86,8 @@ class Trip {
     closedBy: json['closed_by'] as String?,
     distanceM: toDouble(json['distance_m']),
     lastFixAt: parseTimeOrNull(json['last_fix_at']),
+    movedAt: parseTimeOrNull(json['moved_at']),
+    arrivedAt: parseTimeOrNull(json['arrived_at']),
     durationS: toDoubleOrNull(json['duration_s']),
     avgSpeedMps: toDoubleOrNull(json['avg_speed_mps']),
   );
@@ -103,14 +107,23 @@ class Trip {
   final DateTime startedAt;
   final DateTime? endedAt;
 
-  /// `driver` | `auto` once ended.
+  /// `driver` | `auto` | `arrival` once ended.
   final String? closedBy;
   final double distanceM;
   final DateTime? lastFixAt;
+
+  /// First fix above the moved-speed threshold; null until the bus moves.
+  final DateTime? movedAt;
+
+  /// When the bus reached the geofence (campus or last stop), if it did.
+  final DateTime? arrivedAt;
 
   /// Only in the end-of-trip summary.
   final double? durationS;
   final double? avgSpeedMps;
 
   bool get isActive => endedAt == null;
+
+  /// The server ended the trip itself at the arrival geofence.
+  bool get closedByArrival => closedBy == 'arrival';
 }

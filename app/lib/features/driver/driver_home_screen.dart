@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/models/models.dart';
+import '../../core/util/clock_format.dart';
 import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import 'driver_controller.dart';
@@ -90,8 +91,50 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
     );
   }
 
+  Future<void> _confirmEnd(Trip trip) async {
+    final label = endLabel(trip.direction);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$label?'),
+        content: const Text(
+          'This ends the journey and stops sharing the bus location.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(label),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await ref.read(driverControllerProvider.notifier).end();
+    }
+  }
+
+  Future<void> _showSummary(Trip trip) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => JourneySummaryDialog(trip: trip),
+    );
+    if (mounted) {
+      ref.read(driverControllerProvider.notifier).acknowledgeSummary();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen<DriverState>(driverControllerProvider, (previous, next) {
+      final summary = next.summary;
+      if (summary != null && previous?.summary?.id != summary.id) {
+        unawaited(_showSummary(summary));
+      }
+    });
     final state = ref.watch(driverControllerProvider);
     final controller = ref.read(driverControllerProvider.notifier);
     final trip = state.trip;
@@ -168,15 +211,19 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
               FilledButton.icon(
                 onPressed: state.busy ? null : _start,
                 icon: const Icon(Icons.play_arrow),
-                label: Text(state.busy ? 'Starting...' : 'Start trip'),
+                label: Text(
+                  state.busy ? 'Starting journey...' : 'Start Journey',
+                ),
               ),
             ] else ...[
               Text(
                 trip.routeName,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
+              Text('Bus ${trip.busLabel} · ${_journeyText(trip.direction)}'),
               Text(
-                'Bus ${trip.busLabel} · ${trip.direction.label} · Trip in progress',
+                'Started ${formatClock(trip.startedAt)}'
+                '${trip.movedAt == null ? '' : ' · Moving since ${formatClock(trip.movedAt!)}'}',
               ),
               const SizedBox(height: 16),
               _StatusChip(status: trip.status),
@@ -230,14 +277,72 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
                 style: FilledButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.error,
                 ),
-                onPressed: state.busy ? null : controller.end,
-                icon: const Icon(Icons.stop),
-                label: Text(state.busy ? 'Ending...' : 'End trip'),
+                onPressed: state.busy ? null : () => _confirmEnd(trip),
+                icon: const Icon(Icons.flag),
+                label: Text(
+                  state.busy ? 'Ending...' : endLabel(trip.direction),
+                ),
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+}
+
+String _journeyText(TripDirection direction) =>
+    direction == TripDirection.toCampus
+    ? 'Journey to campus'
+    : 'Journey from campus';
+
+/// The driver's manual end button; the server also ends the trip itself at the
+/// campus (to_campus) or the route's last stop (from_campus).
+String endLabel(TripDirection direction) => direction == TripDirection.toCampus
+    ? 'Reached campus'
+    : 'Reached home stop';
+
+/// Shown once when the server ended the journey (arrival geofence or auto-close).
+class JourneySummaryDialog extends StatelessWidget {
+  const JourneySummaryDialog({super.key, required this.trip});
+
+  final Trip trip;
+
+  @override
+  Widget build(BuildContext context) {
+    final arrived = trip.closedByArrival;
+    final headline = arrived
+        ? (trip.direction == TripDirection.toCampus
+              ? 'You have reached campus. Journey ended and saved.'
+              : 'You have reached the last stop. Journey ended and saved.')
+        : 'Your journey was ended automatically and saved.';
+    final reached = trip.arrivedAt ?? trip.endedAt;
+    return AlertDialog(
+      title: const Text('Journey ended'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(headline),
+          const SizedBox(height: 12),
+          Text('Started: ${formatClock(trip.startedAt)}'),
+          Text(
+            trip.movedAt == null
+                ? 'Moved: -'
+                : 'Moved: ${formatClock(trip.movedAt!)}',
+          ),
+          Text(
+            reached == null ? 'Arrived: -' : 'Arrived: ${formatClock(reached)}',
+          ),
+          Text('Distance: ${trip.distanceM.round()} m'),
+        ],
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'auth/auth_controller.dart';
 import 'core/ui/theme.dart';
 import 'core/ui/widgets/connection_banner.dart';
+import 'features/student/journey_push.dart';
 import 'push/push_service.dart';
 import 'realtime/live_messages.dart';
 import 'realtime/live_providers.dart';
@@ -29,10 +30,11 @@ class _CtmsAppState extends ConsumerState<CtmsApp> {
   void initState() {
     super.initState();
     Future.microtask(() => ref.read(authControllerProvider.notifier).restore());
-    _pushSub = ref
-        .read(pushServiceProvider)
-        .foregroundMessages
-        .listen((m) => _snack(m.title.isEmpty ? m.body : m.title));
+    _pushSub = ref.read(pushServiceProvider).foregroundMessages.listen((m) {
+      // The student screen shows its own prominent journey banner.
+      if (isJourneyStartedPush(m)) return;
+      _snack(m.title.isEmpty ? m.body : m.title);
+    });
   }
 
   @override

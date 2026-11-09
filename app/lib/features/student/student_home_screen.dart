@@ -18,6 +18,7 @@ import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import '../../realtime/live_messages.dart';
 import '../../realtime/live_providers.dart';
+import 'journey_push.dart';
 import 'pickup_screen.dart';
 import 'registration_providers.dart';
 import 'student_providers.dart';
@@ -46,6 +47,13 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
     });
     _pushSubscription = ref.read(pushServiceProvider).foregroundMessages.listen(
       (message) {
+        if (isJourneyStartedPush(message)) {
+          if (mounted) {
+            showJourneyStartedBanner(ScaffoldMessenger.of(context));
+            unawaited(ref.read(liveBusesProvider.notifier).refetch());
+          }
+          return;
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

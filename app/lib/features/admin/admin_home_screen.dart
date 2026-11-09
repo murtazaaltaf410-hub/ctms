@@ -8,7 +8,9 @@ import '../../core/models/live_bus.dart';
 import '../../core/models/trip.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
+import '../../core/util/clock_format.dart';
 import 'admin_models.dart';
+import 'campus_location_screen.dart';
 import 'admin_providers.dart';
 import 'bus_form_dialog.dart';
 import 'driver_form_screen.dart';
@@ -498,11 +500,7 @@ class _ReportsTab extends ConsumerWidget {
         empty: 'No trips match this report.',
         item: (trip) => ListTile(
           title: Text('${trip.busLabel} • ${trip.routeName}'),
-          subtitle: Text(
-            '${trip.driverName}\n'
-            '${trip.distanceM.toStringAsFixed(0)} m • ${trip.status} • '
-            '${trip.endedAt == null ? 'Active' : 'Closed ${trip.closedBy ?? ''}'}',
-          ),
+          subtitle: Text(tripSubtitle(trip)),
           isThreeLine: true,
           onTap: () => _showTripPath(context, ref, trip),
         ),
@@ -514,6 +512,19 @@ class _ReportsTab extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Trip history row text: driver, direction, times, distance and how it ended.
+String tripSubtitle(TripReport trip) =>
+    '${trip.driverName} • ${trip.direction.label}\n'
+    '${tripTimesText(trip)}\n'
+    '${trip.distanceM.toStringAsFixed(0)} m • ${trip.status} • '
+    '${trip.closedByLabel ?? 'Active'}';
+
+String tripTimesText(TripReport trip) {
+  String at(DateTime? time) => time == null ? '-' : formatClock(time);
+  return 'Started ${at(trip.startedAt)} • Moved ${at(trip.movedAt)} • '
+      'Arrived ${at(trip.arrivedAt)}';
 }
 
 class _MoreTab extends ConsumerWidget {
@@ -528,6 +539,26 @@ class _MoreTab extends ConsumerWidget {
           title: const Text('Administrators'),
           subtitle: const Text('Add or remove administration access'),
           onTap: () => _adminsDialog(context, ref),
+        ),
+        const Divider(),
+        ListTile(
+          leading: const Icon(Icons.pin_drop_outlined),
+          title: const Text('Campus location'),
+          subtitle: ref
+              .watch(adminSettingsProvider)
+              .maybeWhen(
+                data: (settings) => Text(
+                  settings.hasCampusPoint
+                      ? 'Arrival geofence on · ${settings.campusRadiusM.round()} m'
+                      : 'Not set · trips end by the driver or the timeout',
+                ),
+                orElse: () => const Text('Arrival geofence'),
+              ),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const CampusLocationScreen(),
+            ),
+          ),
         ),
         const Divider(),
         ref
@@ -1296,7 +1327,9 @@ void _pathDialog(BuildContext context, TripReport trip, TripPath path) {
             : '${path.points.length} ordered positions\n'
                   'First: ${path.points.first.recordedAt.toLocal()}\n'
                   'Last: ${path.points.last.recordedAt.toLocal()}\n'
-                  'Distance: ${trip.distanceM.toStringAsFixed(0)} m',
+                  'Distance: ${trip.distanceM.toStringAsFixed(0)} m\n'
+                  '${trip.direction.label} • ${trip.closedByLabel ?? 'Active'}\n'
+                  '${tripTimesText(trip)}',
       ),
       actions: [
         TextButton(

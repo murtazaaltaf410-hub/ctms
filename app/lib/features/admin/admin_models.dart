@@ -277,6 +277,9 @@ class TripReport {
     this.avgSpeed,
     required this.status,
     this.closedBy,
+    this.direction = TripDirection.toCampus,
+    this.movedAt,
+    this.arrivedAt,
   });
   factory TripReport.fromJson(Json j) => TripReport(
     id: j['id'] as String,
@@ -289,13 +292,32 @@ class TripReport {
     avgSpeed: toDoubleOrNull(j['avg_speed']),
     status: j['status'] as String,
     closedBy: j['closed_by'] as String?,
+    direction: TripDirection.parse(j['direction']),
+    movedAt: parseTimeOrNull(j['moved_at']),
+    arrivedAt: parseTimeOrNull(j['arrived_at']),
   );
   final String id, busLabel, driverName, routeName, status;
   final DateTime startedAt;
   final DateTime? endedAt;
   final double distanceM;
   final double? avgSpeed;
+
+  /// `driver` | `auto` | `arrival`, null while active.
   final String? closedBy;
+  final TripDirection direction;
+  final DateTime? movedAt;
+  final DateTime? arrivedAt;
+
+  /// How the trip ended, in words; null while it is still active.
+  String? get closedByLabel => switch (closedBy) {
+    'arrival' =>
+      direction == TripDirection.toCampus
+          ? 'Reached campus automatically'
+          : 'Reached last stop automatically',
+    'driver' => 'Ended by driver',
+    'auto' => 'Auto-closed',
+    _ => endedAt == null ? null : 'Closed',
+  };
 }
 
 class TripPath {
@@ -486,3 +508,65 @@ class StudentSummary {
       if (bus.routeId == routeId && bus.hasFreeSeat) bus,
   ];
 }
+
+/// `GET /admin/settings`: alert radius plus the campus arrival geofence.
+class CampusSettings {
+  const CampusSettings({
+    required this.alertRadiusM,
+    this.campusLat,
+    this.campusLng,
+    required this.campusRadiusM,
+    required this.lastStopRadiusM,
+  });
+
+  factory CampusSettings.fromJson(Json j) => CampusSettings(
+    alertRadiusM: toDouble(j['alert_radius_m']),
+    campusLat: toDoubleOrNull(j['campus_lat']),
+    campusLng: toDoubleOrNull(j['campus_lng']),
+    campusRadiusM: toDoubleOrNull(j['campus_radius_m']) ?? 150,
+    lastStopRadiusM: toDoubleOrNull(j['last_stop_radius_m']) ?? 100,
+  );
+
+  final double alertRadiusM;
+  final double? campusLat;
+  final double? campusLng;
+  final double campusRadiusM;
+  final double lastStopRadiusM;
+
+  bool get hasCampusPoint => campusLat != null && campusLng != null;
+}
+
+/// Server limits for the two geofence radii (metres).
+const geofenceRadiusMinM = 20.0;
+const geofenceRadiusMaxM = 5000.0;
+
+/// Validates a radius field; null when valid.
+String? validateGeofenceRadius(String? text) {
+  final value = double.tryParse((text ?? '').trim());
+  if (value == null) return 'Enter a number';
+  if (value < geofenceRadiusMinM || value > geofenceRadiusMaxM) {
+    return 'Between ${geofenceRadiusMinM.round()} and '
+        '${geofenceRadiusMaxM.round()} metres';
+  }
+  return null;
+}
+
+/// Body for `PUT /admin/settings` when saving the campus form. Latitude and
+/// longitude travel together: both numbers, or both null (geofence off).
+Map<String, dynamic> campusSettingsPayload({
+  required double? lat,
+  required double? lng,
+  required String campusRadius,
+  required String lastStopRadius,
+}) => {
+  'campus_lat': lat,
+  'campus_lng': lng,
+  'campus_radius_m': double.parse(campusRadius.trim()),
+  'last_stop_radius_m': double.parse(lastStopRadius.trim()),
+};
+
+/// Body that switches the campus geofence off.
+const campusClearPayload = <String, dynamic>{
+  'campus_lat': null,
+  'campus_lng': null,
+};

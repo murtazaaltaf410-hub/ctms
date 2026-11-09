@@ -38,8 +38,13 @@ class AdminRepository {
       _page('admin/trips', TripReport.fromJson, query: {'bus_id': ?busId});
   Future<TripPath> tripPath(String id) async =>
       TripPath.fromJson(await _api.get('admin/trips/$id/path') as Json);
-  Future<double> alertRadius() async =>
-      toDouble((await _api.get('admin/settings') as Json)['alert_radius_m']);
+  Future<double> alertRadius() async => (await settings()).alertRadiusM;
+  Future<CampusSettings> settings() async =>
+      CampusSettings.fromJson(await _api.get('admin/settings') as Json);
+  Future<CampusSettings> updateSettings(Map<String, dynamic> changes) async =>
+      CampusSettings.fromJson(
+        await _api.put('admin/settings', body: changes) as Json,
+      );
 
   Future<void> createBus({
     required String label,

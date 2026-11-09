@@ -29,6 +29,9 @@ final adminAccountsProvider = FutureProvider<List<AdminAccount>>(
 final adminTripsProvider = FutureProvider<List<TripReport>>(
   (ref) => ref.watch(adminRepositoryProvider).trips(),
 );
+final adminSettingsProvider = FutureProvider<CampusSettings>(
+  (ref) => ref.watch(adminRepositoryProvider).settings(),
+);
 final adminAlertRadiusProvider = FutureProvider<double>(
   (ref) => ref.watch(adminRepositoryProvider).alertRadius(),
 );
@@ -42,6 +45,7 @@ void refreshAdmin(WidgetRef ref) {
   ref.invalidate(adminAccountsProvider);
   ref.invalidate(adminTripsProvider);
   ref.invalidate(adminAlertRadiusProvider);
+  ref.invalidate(adminSettingsProvider);
   ref.invalidate(adminStudentsProvider);
   ref.invalidate(adminStudentSummaryProvider);
 }
