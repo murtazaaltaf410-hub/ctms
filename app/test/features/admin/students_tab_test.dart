@@ -10,7 +10,13 @@ import '../../helpers.dart';
 import '../support.dart';
 
 Map<String, dynamic> summaryJson() => {
-  'totals': {'pending': 2, 'approved': 1, 'rejected': 0, 'total': 3},
+  'totals': {
+    'unregistered': 0,
+    'pending': 2,
+    'approved': 1,
+    'rejected': 0,
+    'total': 3,
+  },
   'buses': [
     {
       'bus_id': 'b1',
@@ -215,6 +221,33 @@ void main() {
     expect(find.byKey(const Key('student-reassign')), findsNothing);
   });
 
+  testWidgets('unregistered student is visible with no review actions', (
+    tester,
+  ) async {
+    all = [
+      {
+        ...adminStudentJson('s1', 'Aisha Khan'),
+        'phone': null,
+        'department': null,
+        'route_id': null,
+        'route_name': null,
+        'status': null,
+        'registration_state': 'unregistered',
+        'approval_diagnostic': 'Student has not submitted a registration.',
+      },
+    ];
+    await pump(tester);
+    expect(find.text('Unregistered'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('student-registration-diagnostic')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('student-approve')), findsNothing);
+    expect(find.byKey(const Key('student-reject')), findsNothing);
+  });
+
   testWidgets('approve offers only buses on the route with free seats', (
     tester,
   ) async {
@@ -270,7 +303,39 @@ void main() {
     await tester.tap(find.byKey(const Key('student-approve')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('student-action-error')), findsOneWidget);
-    expect(find.textContaining('free seat'), findsOneWidget);
+    expect(
+      find.textContaining('No active bus serves Far Loop'),
+      findsOneWidget,
+    );
+    expect(posts('/approve'), isEmpty);
+  });
+
+  testWidgets('approval explains when capacity must be set', (tester) async {
+    final summary = <String, dynamic>{...summaryJson()};
+    final buses = (summary['buses'] as List)
+        .map((bus) => Map<String, dynamic>.from(bus as Map))
+        .toList();
+    buses[0]['capacity'] = null;
+    buses[0]['seats_left'] = null;
+    summary['buses'] = buses;
+    h.adapter.handler = (o) {
+      if (o.method == 'GET' && o.path == 'admin/students/summary') {
+        return jsonBody(200, summary);
+      }
+      if (o.method == 'GET' && o.path == 'admin/students') {
+        return jsonBody(200, {
+          'items': [all.first],
+          'next_cursor': null,
+        });
+      }
+      return errorBody(404, 'NOT_FOUND');
+    };
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Set capacity for Bus 1'), findsOneWidget);
     expect(posts('/approve'), isEmpty);
   });
 
@@ -324,7 +389,7 @@ void main() {
   testWidgets('empty list shows a message', (tester) async {
     all = [];
     await pump(tester);
-    expect(find.text('No students found'), findsOneWidget);
+    expect(find.text('No student accounts yet'), findsOneWidget);
   });
 
   group('bus form', () {

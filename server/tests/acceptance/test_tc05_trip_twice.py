@@ -41,5 +41,11 @@ async def test_tc5_bus_in_use_by_another_driver_is_409(client, con, live_app, si
         "+919833300001",
         trip["bus_id"],
     )
+    await con.execute(
+        """insert into public.driver_route_assignments (driver_id, route_id)
+           values ((select id from public.users where phone = $1), $2::uuid)""",
+        "+919833300001",
+        _route.id,
+    )
     resp = await client.post("/api/v1/trips/start", json={}, headers={"Authorization": f"Bearer {sub['access_token']}"})
     assert resp.status_code == 409 and resp.json()["error"]["code"] == "TRIP_ALREADY_ACTIVE"

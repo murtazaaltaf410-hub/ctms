@@ -159,6 +159,13 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
         # A draft/inactive default route is ignored, i.e. treated as no default (U6/U7).
         raise ValidationFailed("route_id: route is unknown, draft or inactive" if explicit
                                else "route_id: required because the bus has no active default route")
+    assigned = await con.fetchval(
+        """select true from public.driver_route_assignments
+           where driver_id = $1 and route_id = $2""",
+        driver_id, route_id,
+    )
+    if not assigned:
+        raise ValidationFailed("route_id: this route is not assigned to this driver")
     if await con.fetchval(
         "select true from public.trips where (bus_id = $1 or driver_id = $2) and ended_at is null",
         bus["id"], driver_id,

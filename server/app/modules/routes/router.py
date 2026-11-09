@@ -24,7 +24,7 @@ from pydantic import Field
 
 from app.audit import write_audit
 from app.db import Conn
-from app.deps import AuthUser
+from app.deps import AuthUser, CurrentUser, require_role
 from app.errors import InUse, NotFound, PolylineFailed, ValidationFailed, error_body
 from app.integrations.routes_api import RouteProvider, get_route_provider
 from app.modules.admin.common import (
@@ -44,6 +44,7 @@ public_router = APIRouter(prefix="/routes", tags=["routes"])
 admin_router = APIRouter(tags=["admin: routes"])
 
 Provider = Annotated[RouteProvider, Depends(get_route_provider)]
+Driver = Annotated[CurrentUser, Depends(require_role("driver"))]
 
 
 # --- Schemas ---------------------------------------------------------------------------------------
@@ -170,6 +171,26 @@ _POLYLINE_FAILED_RESPONSE = {422: {"description": "POLYLINE_FAILED: `error` plus
 
 
 # --- Public ----------------------------------------------------------------------------------------
+
+@public_router.get("/assigned", response_model=RouteSummaryPage)
+async def list_assigned_routes(request: Request, user: Driver, con: Conn, cursor: Cursor = None,
+                               limit: Limit = None) -> RouteSummaryPage:
+    """Active routes that this driver is allowed to start trips on."""
+    n = page_limit(request, limit)
+    after = decode_cursor(cursor)
+    rows = await con.fetch(
+        """select r.id, r.name, r.length_m, r.created_at,
+                  (select count(*) from public.stops s where s.route_id = r.id and s.active) as stop_count
+           from public.driver_route_assignments dra
+           join public.routes r on r.id = dra.route_id
+           where dra.driver_id = $1 and r.active and r.status = 'active'
+             and ($2::timestamptz is null or (r.created_at, r.id) > ($2, $3))
+           order by r.created_at, r.id limit $4""",
+        user.id, after[0] if after else None, after[1] if after else None, n + 1,
+    )
+    page, next_cursor = paginate(rows, n, "created_at")
+    return RouteSummaryPage(items=[RouteSummaryOut(**dict(r)) for r in page], next_cursor=next_cursor)
+
 
 @public_router.get("", response_model=RouteSummaryPage)
 async def list_routes(request: Request, user: AuthUser, con: Conn, cursor: Cursor = None,

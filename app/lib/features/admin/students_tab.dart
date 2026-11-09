@@ -95,13 +95,15 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
             data: (state) => Column(
               children: [
                 if (state.items.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
                     child: EmptyView(
-                      title: 'No students found',
-                      message:
-                          'Registrations appear here once students send '
-                          'them.',
+                      title: filter.status == null && filter.query.isEmpty
+                          ? 'No student accounts yet'
+                          : 'No matching students',
+                      message: filter.status == null && filter.query.isEmpty
+                          ? 'Student accounts appear here after their first sign-in.'
+                          : 'Try another status or search term.',
                     ),
                   ),
                 for (final student in state.items)
@@ -184,6 +186,14 @@ class _SummaryCard extends StatelessWidget {
                 padding: EdgeInsets.only(top: 8),
                 child: Text('Seat counts could not load.'),
               ),
+            if (data != null && totals.unregistered > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '${totals.unregistered} student ${totals.unregistered == 1 ? 'account has' : 'accounts have'} not submitted a registration.',
+                  key: const Key('unregistered-students'),
+                ),
+              ),
             if (data != null && data.buses.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Seats', style: Theme.of(context).textTheme.titleSmall),
@@ -221,7 +231,7 @@ class _StudentTile extends StatelessWidget {
         key: Key('student-${student.id}'),
         title: Text(student.fullName),
         subtitle: Text(details.isEmpty ? 'No details' : details),
-        trailing: StatusChip(status: student.status),
+        trailing: StatusChip(student: student),
         onTap: onTap,
       ),
     );
@@ -229,20 +239,25 @@ class _StudentTile extends StatelessWidget {
 }
 
 class StatusChip extends StatelessWidget {
-  const StatusChip({super.key, required this.status});
+  const StatusChip({super.key, required this.student});
 
-  final RegistrationStatus status;
+  final AdminStudent student;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = switch (status) {
-      RegistrationStatus.pending => scheme.tertiaryContainer,
-      RegistrationStatus.approved => scheme.primaryContainer,
-      RegistrationStatus.rejected => scheme.errorContainer,
+    final color = switch (student.registrationState) {
+      'unregistered' => scheme.surfaceContainerHighest,
+      'incomplete' => scheme.errorContainer,
+      _ => switch (student.status) {
+        RegistrationStatus.pending => scheme.tertiaryContainer,
+        RegistrationStatus.approved => scheme.primaryContainer,
+        RegistrationStatus.rejected => scheme.errorContainer,
+        null => scheme.surfaceContainerHighest,
+      },
     };
     return Chip(
-      label: Text(status.label),
+      label: Text(student.stateLabel),
       backgroundColor: color,
       visualDensity: VisualDensity.compact,
     );
@@ -292,21 +307,32 @@ class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
   Future<String?> _chooseBus({required bool reassign}) async {
     final StudentSummary summary;
     try {
+      // Capacity changes independently of this sheet. Read a new summary before
+      // showing choices; the server remains the final, locked seat check.
+      ref.invalidate(adminStudentSummaryProvider);
       summary = await ref.read(adminStudentSummaryProvider.future);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.userMessage);
       return null;
     }
+    final routeBuses = [
+      for (final bus in summary.buses)
+        if (bus.routeId == _s.routeId) bus,
+    ];
     final candidates = [
-      for (final bus in summary.busesWithSeats(_s.routeId))
-        if (!reassign || bus.busId != _s.busId) bus,
+      for (final bus in routeBuses)
+        if ((!reassign || bus.busId != _s.busId) && bus.hasFreeSeat) bus,
     ];
     if (!mounted) return null;
     if (candidates.isEmpty) {
+      final route = _s.routeName ?? 'this route';
+      final unset = routeBuses.where((bus) => bus.capacity == null).toList();
       setState(
-        () => _error =
-            'No bus on ${_s.routeName ?? 'this route'} has a free seat. Add '
-            'a bus or set a bigger capacity under Buses.',
+        () => _error = routeBuses.isEmpty
+            ? 'No active bus serves $route. Set a bus route before approving.'
+            : unset.isNotEmpty
+            ? 'Set capacity for ${unset.map((bus) => bus.label).join(', ')} before approving.'
+            : 'No bus on $route has a free seat. Add a bus or increase capacity under Buses.',
       );
       return null;
     }
@@ -366,7 +392,7 @@ class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
                 Expanded(
                   child: Text(s.fullName, style: theme.textTheme.titleLarge),
                 ),
-                StatusChip(status: s.status),
+                StatusChip(student: s),
               ],
             ),
             const SizedBox(height: 8),
@@ -380,6 +406,15 @@ class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
               s.claimsRegistered ? 'Yes (verify)' : 'No (seat request)',
             ),
             _row('Assigned bus', s.busLabel),
+            if (s.approvalDiagnostic != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  s.approvalDiagnostic!,
+                  key: const Key('student-registration-diagnostic'),
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ),
             if (s.adminNote != null) _row('Office note', s.adminNote),
             _row(
               'Submitted',
@@ -399,19 +434,19 @@ class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (s.status != RegistrationStatus.approved)
+                if (s.canReview && s.status != RegistrationStatus.approved)
                   FilledButton(
                     key: const Key('student-approve'),
                     onPressed: _busy ? null : () => _assign(reassign: false),
                     child: const Text('Approve'),
                   ),
-                if (s.status == RegistrationStatus.approved)
+                if (s.canReview && s.status == RegistrationStatus.approved)
                   FilledButton.tonal(
                     key: const Key('student-reassign'),
                     onPressed: _busy ? null : () => _assign(reassign: true),
                     child: const Text('Reassign bus'),
                   ),
-                if (s.status != RegistrationStatus.rejected)
+                if (s.canReview && s.status != RegistrationStatus.rejected)
                   OutlinedButton(
                     key: const Key('student-reject'),
                     onPressed: _busy ? null : _reject,

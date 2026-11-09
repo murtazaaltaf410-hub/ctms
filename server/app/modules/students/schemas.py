@@ -11,6 +11,7 @@ from app.modules.auth.schemas import normalise_phone
 from app.schemas import ApiModel, UtcDateTime
 
 Status = Literal["pending", "approved", "rejected"]
+RegistrationState = Literal["unregistered", "incomplete", "registered"]
 
 
 class RegistrationIn(ApiModel):
@@ -70,7 +71,11 @@ class AdminStudent(ApiModel):
     route_name: str | None
     requested_bus_label: str | None
     claims_registered: bool
-    status: Status
+    # `None` is reserved for an account that has not submitted a registration.
+    # Keep the review status distinct from the registration's completeness.
+    status: Status | None
+    registration_state: RegistrationState
+    approval_diagnostic: str | None
     bus_id: UUID | None
     bus_label: str | None
     admin_note: str | None
@@ -92,6 +97,7 @@ class RejectIn(ApiModel):
 
 
 class StatusCounts(ApiModel):
+    unregistered: int = 0
     pending: int = 0
     approved: int = 0
     rejected: int = 0

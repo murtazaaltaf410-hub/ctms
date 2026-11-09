@@ -140,6 +140,21 @@ class DriverPage(ApiModel):
     next_cursor: str | None
 
 
+class DriverRouteAssignmentsIn(ApiModel):
+    route_ids: list[UUID] = Field(description="Complete replacement set of routes assigned to this driver")
+
+
+class AssignedDriverRoute(ApiModel):
+    id: UUID
+    name: str
+
+
+class DriverRouteAssignmentsOut(ApiModel):
+    driver_id: UUID
+    route_ids: list[UUID]
+    routes: list[AssignedDriverRoute]
+
+
 _SELECT = """select u.id, u.name, u.phone, u.userid, u.email, u.active, u.must_change_password,
                     (u.locked_until is not null and u.locked_until > now()) as locked, u.created_at,
                     b.id as bus_id, b.label as bus_label,
@@ -268,6 +283,59 @@ async def reset_driver_password(driver_id: UUID, request: Request, user: AdminUs
         await write_audit(con, actor_id=user.id, action="driver.reset_password", target_type="user",
                           target_id=driver_id)
     return PasswordResetOut(temporary_password=temporary)
+
+
+async def _assigned_routes(con: asyncpg.Connection, driver_id: UUID) -> list[asyncpg.Record]:
+    return await con.fetch(
+        """select r.id, r.name from public.driver_route_assignments dra
+           join public.routes r on r.id = dra.route_id
+           where dra.driver_id = $1 order by r.name, r.id""",
+        driver_id,
+    )
+
+
+@router.get("/{driver_id}/routes", response_model=DriverRouteAssignmentsOut)
+async def driver_route_assignments(driver_id: UUID, user: AdminUser, con: Conn) -> DriverRouteAssignmentsOut:
+    """Return the routes an admin has allowed this driver to operate."""
+    found = await con.fetchval("select 1 from public.users where id = $1 and role = 'driver'", driver_id)
+    if found is None:
+        raise NotFound("Driver not found")
+    routes = await _assigned_routes(con, driver_id)
+    return DriverRouteAssignmentsOut(driver_id=driver_id, route_ids=[r["id"] for r in routes],
+                                     routes=[AssignedDriverRoute(**dict(r)) for r in routes])
+
+
+@router.put("/{driver_id}/routes", response_model=DriverRouteAssignmentsOut)
+async def replace_driver_route_assignments(driver_id: UUID, body: DriverRouteAssignmentsIn, user: AdminUser,
+                                           con: Conn) -> DriverRouteAssignmentsOut:
+    """Replace the routes this driver may start trips on."""
+    route_ids = body.route_ids
+    if len(set(route_ids)) != len(route_ids):
+        raise ValidationFailed("route_ids: duplicate route IDs are not allowed")
+    async with con.transaction():
+        driver = await con.fetchrow(
+            "select id from public.users where id = $1 and role = 'driver' for update", driver_id)
+        if driver is None:
+            raise NotFound("Driver not found")
+        if route_ids:
+            valid_ids = await con.fetch(
+                """select id from public.routes where id = any($1::uuid[])
+                   and active and status = 'active'""",
+                route_ids,
+            )
+            if len(valid_ids) != len(route_ids):
+                raise ValidationFailed("route_ids: every route must be active")
+        await con.execute("delete from public.driver_route_assignments where driver_id = $1", driver_id)
+        if route_ids:
+            await con.executemany(
+                "insert into public.driver_route_assignments (driver_id, route_id) values ($1, $2)",
+                [(driver_id, route_id) for route_id in route_ids],
+            )
+        await write_audit(con, actor_id=user.id, action="driver.route_assignments.replace", target_type="user",
+                          target_id=driver_id, meta={"route_ids": [str(route_id) for route_id in route_ids]})
+        routes = await _assigned_routes(con, driver_id)
+    return DriverRouteAssignmentsOut(driver_id=driver_id, route_ids=[r["id"] for r in routes],
+                                     routes=[AssignedDriverRoute(**dict(r)) for r in routes])
 
 
 @router.patch("/{driver_id}", response_model=DriverOut)

@@ -45,6 +45,12 @@ async def test_e2e_route_to_report(
         "/api/v1/admin/drivers", json={"name": "E2E Driver", "phone": "+919877700001", "bus_id": bus_id}, headers=adm
     )
     assert drv.status_code == 201 and drv.json()["bus_id"] == bus_id, drv.text
+    assigned = await client.put(
+        f"/api/v1/admin/drivers/{drv.json()['id']}/routes",
+        json={"route_ids": [route["id"]]},
+        headers=adm,
+    )
+    assert assigned.status_code == 200, assigned.text
 
     # 2. Student waiting at "Hostel" with alerts on, app open (live socket).
     hostel = next(s for s in route["stops"] if s["name"] == "Hostel")

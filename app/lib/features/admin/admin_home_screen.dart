@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/live_bus.dart';
 import '../../core/models/trip.dart';
+import '../../core/ui/maps/transit_map.dart';
+import '../../core/ui/maps/transit_map_models.dart';
+import '../../core/ui/polyline.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import '../../core/util/clock_format.dart';
@@ -118,6 +120,13 @@ const _titles = [
   'Administration',
 ];
 
+final _activeRouteDetailsProvider =
+    FutureProvider.family<List<AdminRoute>, String>((ref, routeKey) async {
+      if (routeKey.isEmpty) return const [];
+      final repository = ref.watch(adminRepositoryProvider);
+      return Future.wait(routeKey.split(',').map(repository.route));
+    });
+
 class _LiveTab extends ConsumerWidget {
   const _LiveTab();
 
@@ -125,6 +134,11 @@ class _LiveTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final buses = ref.watch(liveBusesProvider).values.toList()
       ..sort((a, b) => a.label.compareTo(b.label));
+    final routeKey = (buses.map((bus) => bus.routeId).toSet().toList()..sort())
+        .join(',');
+    final routes =
+        ref.watch(_activeRouteDetailsProvider(routeKey)).asData?.value ??
+        const <AdminRoute>[];
 
     return RefreshIndicator(
       onRefresh: () => ref.read(liveBusesProvider.notifier).refetch(),
@@ -142,28 +156,24 @@ class _LiveTab extends ConsumerWidget {
           : ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                SizedBox(
-                  height: 280,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: LatLng(buses.first.lat, buses.first.lng),
-                        zoom: 14,
-                      ),
-                      markers: {
-                        for (final bus in buses)
-                          Marker(
-                            markerId: MarkerId(bus.busId),
-                            position: LatLng(bus.lat, bus.lng),
-                            infoWindow: InfoWindow(
-                              title: bus.label,
-                              snippet: '${bus.routeName} - ${bus.state.name}',
-                            ),
-                          ),
-                      },
-                      myLocationButtonEnabled: false,
-                    ),
+                TransitMapPreview(
+                  title: 'Live fleet',
+                  data: TransitMapData(
+                    buses: [
+                      for (final bus in buses)
+                        TransitMapBus(
+                          id: bus.busId,
+                          label: bus.label,
+                          position: MapCoordinate(bus.lat, bus.lng),
+                          heading: bus.heading,
+                          detail:
+                              '${bus.routeName} · ${bus.state.name} · last seen ${formatClock(bus.lastFixAt)}',
+                        ),
+                    ],
+                    routes: [
+                      for (var index = 0; index < routes.length; index++)
+                        _asTransitRoute(routes[index], index),
+                    ],
                   ),
                 ),
                 const Padding(
@@ -173,6 +183,30 @@ class _LiveTab extends ConsumerWidget {
                 ...buses.map((bus) => _liveCard(context, bus)),
               ],
             ),
+    );
+  }
+
+  TransitMapRoute _asTransitRoute(AdminRoute route, int index) {
+    const colors = [Colors.blue, Colors.teal, Colors.deepOrange, Colors.purple];
+    return TransitMapRoute(
+      id: route.id,
+      name: route.name,
+      points: route.polyline == null
+          ? const []
+          : [
+              for (final point in decodePolyline(route.polyline!))
+                MapCoordinate(point.latitude, point.longitude),
+            ],
+      stops: [
+        for (final stop in route.stops)
+          TransitMapStop(
+            id: stop.id,
+            label: stop.name,
+            position: MapCoordinate(stop.lat, stop.lng),
+            routeId: route.id,
+          ),
+      ],
+      color: colors[index % colors.length],
     );
   }
 
@@ -284,12 +318,18 @@ class _FleetTab extends ConsumerWidget {
                         onSelected: (choice) {
                           if (choice == 'edit') {
                             _editDriver(tabContext, ref, driver);
+                          } else if (choice == 'routes') {
+                            _assignDriverRoutes(tabContext, ref, driver);
                           } else {
                             _resetDriverPassword(tabContext, ref, driver);
                           }
                         },
                         itemBuilder: (_) => const [
                           PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(
+                            value: 'routes',
+                            child: Text('Assign routes'),
+                          ),
                           PopupMenuItem(
                             value: 'reset',
                             child: Text('Reset password'),
@@ -745,6 +785,89 @@ Future<void> _editDriver(
     () => ref
         .read(adminRepositoryProvider)
         .updateDriver(driver.id, input.toJson()),
+  );
+}
+
+Future<void> _assignDriverRoutes(
+  BuildContext context,
+  WidgetRef ref,
+  AdminDriver driver,
+) async {
+  final routes = await ref.read(adminRoutesProvider.future);
+  final assigned = await ref
+      .read(adminRepositoryProvider)
+      .driverRouteIds(driver.id);
+  if (!context.mounted) return;
+  final selected = await showDialog<List<String>>(
+    context: context,
+    builder: (dialogContext) => _DriverRoutesDialog(
+      routes: routes
+          .where((route) => route.active && route.status == 'active')
+          .toList(),
+      initialRouteIds: assigned.toSet(),
+    ),
+  );
+  if (selected == null || !context.mounted) return;
+  await _run(
+    context,
+    ref,
+    () => ref
+        .read(adminRepositoryProvider)
+        .replaceDriverRoutes(driver.id, selected),
+  );
+}
+
+class _DriverRoutesDialog extends StatefulWidget {
+  const _DriverRoutesDialog({
+    required this.routes,
+    required this.initialRouteIds,
+  });
+
+  final List<AdminRoute> routes;
+  final Set<String> initialRouteIds;
+
+  @override
+  State<_DriverRoutesDialog> createState() => _DriverRoutesDialogState();
+}
+
+class _DriverRoutesDialogState extends State<_DriverRoutesDialog> {
+  late final Set<String> _selected = {...widget.initialRouteIds};
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Assigned routes'),
+    content: SizedBox(
+      width: double.maxFinite,
+      child: widget.routes.isEmpty
+          ? const Text('No active routes are available.')
+          : ListView(
+              shrinkWrap: true,
+              children: [
+                for (final route in widget.routes)
+                  CheckboxListTile(
+                    value: _selected.contains(route.id),
+                    title: Text(route.name),
+                    onChanged: (checked) => setState(() {
+                      if (checked ?? false) {
+                        _selected.add(route.id);
+                      } else {
+                        _selected.remove(route.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, _selected.toList()..sort()),
+        child: const Text('Save'),
+      ),
+    ],
   );
 }
 

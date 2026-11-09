@@ -13,7 +13,7 @@ class DriverRepository {
   }
 
   Future<List<RouteSummary>> routes() async {
-    final json = await _api.get('routes') as Json;
+    final json = await _api.get('routes/assigned') as Json;
     return parseList(json['items'], RouteSummary.fromJson);
   }
 

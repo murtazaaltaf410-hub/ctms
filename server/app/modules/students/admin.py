@@ -37,18 +37,36 @@ from app.modules.students.schemas import Status as StudentStatus
 router = APIRouter(prefix="/admin/students", tags=["admin: students"])
 
 _SELECT = """
-select sp.user_id as id, sp.full_name, u.email, sp.phone, sp.department, sp.route_id, r.name as route_name,
-       sp.requested_bus_label, sp.claims_registered, sp.status, sp.bus_id, b.label as bus_label,
-       sp.admin_note, sp.reviewed_at, sp.created_at
-  from public.student_profiles sp
-  join public.users u on u.id = sp.user_id
+select u.id, coalesce(sp.full_name, u.name, 'Student') as full_name, u.email, sp.phone, sp.department,
+       sp.route_id, r.name as route_name,
+       sp.requested_bus_label, coalesce(sp.claims_registered, false) as claims_registered,
+       sp.status, sp.bus_id, b.label as bus_label,
+       sp.admin_note, sp.reviewed_at, coalesce(sp.created_at, u.created_at) as created_at,
+       case
+         when sp.user_id is null then 'unregistered'
+         when nullif(trim(sp.full_name), '') is null
+           or nullif(trim(sp.phone), '') is null
+           or nullif(trim(sp.department), '') is null
+           or sp.route_id is null then 'incomplete'
+         else 'registered'
+       end as registration_state,
+       case
+         when sp.user_id is null then 'Student has not submitted a registration.'
+         when nullif(trim(sp.full_name), '') is null
+           or nullif(trim(sp.phone), '') is null
+           or nullif(trim(sp.department), '') is null
+           or sp.route_id is null then 'Registration is incomplete: name, phone, department, or route is missing.'
+         else null
+       end as approval_diagnostic
+  from public.users u
+  left join public.student_profiles sp on sp.user_id = u.id
   left join public.routes r on r.id = sp.route_id
   left join public.buses b on b.id = sp.bus_id
 """
 
 
 async def load_student(con: asyncpg.Connection, student_id: UUID) -> AdminStudent:
-    row = await con.fetchrow(_SELECT + " where sp.user_id = $1", student_id)
+    row = await con.fetchrow(_SELECT + " where u.id = $1 and u.role = 'student'", student_id)
     if row is None:
         raise NotFound("Student registration not found")
     return AdminStudent(**dict(row))
@@ -71,13 +89,14 @@ async def list_students(
     pattern = _like(q.strip()) if q and q.strip() else None
     rows = await con.fetch(
         _SELECT + """
-        where ($1::text is null or sp.status = $1)
+        where u.role = 'student'
+          and ($1::text is null or sp.status = $1)
           and ($2::uuid is null or sp.route_id = $2)
           and ($3::uuid is null or sp.bus_id = $3)
-          and ($4::text is null or sp.full_name ilike $4 or u.email ilike $4 or sp.phone ilike $4
+           and ($4::text is null or coalesce(sp.full_name, u.name, '') ilike $4 or u.email ilike $4 or sp.phone ilike $4
                or sp.department ilike $4)
-          and ($5::timestamptz is null or (sp.created_at, sp.user_id) > ($5, $6))
-        order by sp.created_at, sp.user_id limit $7""",
+           and ($5::timestamptz is null or (coalesce(sp.created_at, u.created_at), u.id) > ($5, $6))
+        order by coalesce(sp.created_at, u.created_at), u.id limit $7""",
         status, route_id, bus_id, pattern,
         after[0] if after else None, after[1] if after else None, n + 1,
     )
@@ -90,8 +109,13 @@ async def summary(user: AdminUser, con: Conn) -> StudentSummary:
     """Counts by status, seats per bus and totals per route. Counts only, no attendance."""
     counts = {r["status"]: r["n"] for r in await con.fetch(
         "select status, count(*)::int as n from public.student_profiles group by status")}
-    totals = StatusCounts(pending=counts.get("pending", 0), approved=counts.get("approved", 0),
-                          rejected=counts.get("rejected", 0), total=sum(counts.values()))
+    unregistered = await con.fetchval(
+        """select count(*)::int from public.users u
+             where u.role = 'student'
+               and not exists (select 1 from public.student_profiles sp where sp.user_id = u.id)""")
+    totals = StatusCounts(unregistered=unregistered, pending=counts.get("pending", 0),
+                           approved=counts.get("approved", 0), rejected=counts.get("rejected", 0),
+                           total=sum(counts.values()) + unregistered)
     buses = await con.fetch(
         """select b.id as bus_id, b.label, b.default_route_id as route_id, b.capacity,
                   (select count(*)::int from public.student_profiles sp
@@ -123,10 +147,14 @@ async def _assign(request: Request, con: asyncpg.Connection, admin_id: UUID, stu
                   *, reassign: bool) -> AdminStudent:
     async with con.transaction():
         prof = await con.fetchrow(
-            "select route_id, status, bus_id from public.student_profiles where user_id = $1 for update",
+            """select full_name, phone, department, route_id, status, bus_id
+                 from public.student_profiles where user_id = $1 for update""",
             student_id)
         if prof is None:
             raise NotFound("Student registration not found")
+        if any(not isinstance(prof[field], str) or not prof[field].strip()
+               for field in ("full_name", "phone", "department")) or prof["route_id"] is None:
+            raise ValidationFailed("Student registration is incomplete; ask the student to complete it before approval")
         if reassign and prof["status"] != "approved":
             raise ValidationFailed("status: only an approved student can be reassigned; approve first")
         bus = await con.fetchrow(

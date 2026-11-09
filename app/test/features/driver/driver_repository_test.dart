@@ -32,7 +32,7 @@ void main() {
     });
     final routes = await repository.routes();
     expect(routes.single.name, 'Campus loop');
-    expect(adapter.requests.single.path, 'routes');
+    expect(adapter.requests.single.path, 'routes/assigned');
   });
 
   test('uploads UUID fixes in server shape', () async {

@@ -77,6 +77,7 @@ flutter:
 
   assets:
     - assets/icon/logo.png
+    - assets/map/bus_marker.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

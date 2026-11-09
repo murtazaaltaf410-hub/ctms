@@ -38,11 +38,35 @@ async def test_start_uses_default_route_and_is_ad_hoc(client, live_app, driver_w
     assert active.json()["id"] == trip["id"]
 
 
-async def test_start_with_explicit_route(client, live_app, driver_with_bus, make_route):
+async def test_start_with_explicit_route(client, con, live_app, driver_with_bus, make_route):
     other = await make_route(name="Other")
     driver = await driver_with_bus()
     resp = await client.post("/api/v1/trips/start", json={"route_id": str(other["id"])}, headers=driver["headers"])
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    await con.execute(
+        "insert into public.driver_route_assignments (driver_id, route_id) values ($1, $2)",
+        driver["driver_id"], other["id"],
+    )
+    resp = await client.post("/api/v1/trips/start", json={"route_id": str(other["id"])}, headers=driver["headers"])
     assert resp.status_code == 201 and resp.json()["route_id"] == str(other["id"])
+
+
+async def test_driver_lists_only_assigned_routes(client, con, live_app, driver_with_bus, make_route, google_login):
+    first = await make_route(name="First")
+    second = await make_route(name="Second")
+    driver = await driver_with_bus(route=first)
+    await con.execute(
+        "insert into public.driver_route_assignments (driver_id, route_id) values ($1, $2)",
+        driver["driver_id"], second["id"],
+    )
+
+    resp = await client.get("/api/v1/routes/assigned", headers=driver["headers"])
+    assert resp.status_code == 200, resp.text
+    assert {route["id"] for route in resp.json()["items"]} == {str(first["id"]), str(second["id"])}
+
+    student = await google_login("assigned-student", "assigned@student.test")
+    forbidden = await client.get("/api/v1/routes/assigned", headers=bearer(student["access_token"]))
+    assert forbidden.status_code == 403 and forbidden.json()["error"]["code"] == "FORBIDDEN_ROLE"
 
 
 @pytest.mark.parametrize(

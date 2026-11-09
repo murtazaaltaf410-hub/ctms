@@ -154,6 +154,7 @@ class AdminRoute {
     required this.active,
     required this.stopCount,
     this.polylineError,
+    this.polyline,
     this.warning,
     this.stops = const [],
   });
@@ -167,6 +168,7 @@ class AdminRoute {
         (j['stops'] as List?)?.length ??
         0,
     polylineError: j['polyline_error'] as String?,
+    polyline: j['polyline'] as String?,
     warning: j['warning'] as String?,
     stops: ((j['stops'] as List?) ?? const [])
         .map((e) => AdminStop.fromJson(e as Json))
@@ -175,7 +177,7 @@ class AdminRoute {
   final String id, name, status;
   final bool active;
   final int stopCount;
-  final String? polylineError, warning;
+  final String? polylineError, polyline, warning;
   final List<AdminStop> stops;
 }
 
@@ -350,7 +352,9 @@ class AdminStudent {
   const AdminStudent({
     required this.id,
     required this.fullName,
-    required this.status,
+    this.status,
+    this.registrationState = 'registered',
+    this.approvalDiagnostic,
     this.email,
     this.phone,
     this.department,
@@ -375,7 +379,9 @@ class AdminStudent {
     routeName: j['route_name'] as String?,
     requestedBusLabel: j['requested_bus_label'] as String?,
     claimsRegistered: j['claims_registered'] as bool? ?? false,
-    status: RegistrationStatus.parse(j['status']),
+    status: j['status'] == null ? null : RegistrationStatus.parse(j['status']),
+    registrationState: j['registration_state'] as String? ?? 'registered',
+    approvalDiagnostic: j['approval_diagnostic'] as String?,
     busId: j['bus_id'] as String?,
     busLabel: j['bus_label'] as String?,
     adminNote: j['admin_note'] as String?,
@@ -390,15 +396,26 @@ class AdminStudent {
   final String? routeId, routeName;
   final String? requestedBusLabel;
   final bool claimsRegistered;
-  final RegistrationStatus status;
+  final RegistrationStatus? status;
+  final String registrationState;
+  final String? approvalDiagnostic;
   final String? busId, busLabel;
   final String? adminNote;
   final DateTime? reviewedAt;
   final DateTime createdAt;
+
+  bool get canReview => registrationState == 'registered' && status != null;
+
+  String get stateLabel => switch (registrationState) {
+    'unregistered' => 'Unregistered',
+    'incomplete' => 'Incomplete',
+    _ => status?.label ?? 'Unregistered',
+  };
 }
 
 class StatusCounts {
   const StatusCounts({
+    this.unregistered = 0,
     this.pending = 0,
     this.approved = 0,
     this.rejected = 0,
@@ -406,13 +423,14 @@ class StatusCounts {
   });
 
   factory StatusCounts.fromJson(Json j) => StatusCounts(
+    unregistered: (j['unregistered'] as num?)?.toInt() ?? 0,
     pending: (j['pending'] as num?)?.toInt() ?? 0,
     approved: (j['approved'] as num?)?.toInt() ?? 0,
     rejected: (j['rejected'] as num?)?.toInt() ?? 0,
     total: (j['total'] as num?)?.toInt() ?? 0,
   );
 
-  final int pending, approved, rejected, total;
+  final int unregistered, pending, approved, rejected, total;
 
   int forStatus(RegistrationStatus? status) => switch (status) {
     null => total,

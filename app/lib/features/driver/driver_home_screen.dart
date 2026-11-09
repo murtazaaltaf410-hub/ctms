@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/models/models.dart';
+import '../../core/ui/maps/transit_map.dart';
+import '../../core/ui/maps/transit_map_models.dart';
 import '../../core/util/clock_format.dart';
 import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
@@ -416,28 +417,17 @@ class _WaitingStudentsCardState extends ConsumerState<_WaitingStudentsCard> {
               const SizedBox(height: 8),
               SizedBox(
                 height: 180,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: LatLng(students.first.lat, students.first.lng),
-                      zoom: 14,
-                    ),
-                    markers: {
+                child: TransitMapPreview(
+                  title: 'Waiting students',
+                  data: TransitMapData(
+                    stops: [
                       for (final student in students)
-                        Marker(
-                          markerId: MarkerId(student.id),
-                          position: LatLng(student.lat, student.lng),
-                          infoWindow: InfoWindow(
-                            title: student.label ?? 'Student waiting',
-                          ),
-                          icon: BitmapDescriptor.defaultMarkerWithHue(
-                            BitmapDescriptor.hueOrange,
-                          ),
+                        TransitMapStop(
+                          id: student.id,
+                          label: student.label ?? 'Student waiting',
+                          position: MapCoordinate(student.lat, student.lng),
                         ),
-                    },
-                    myLocationEnabled: true,
-                    myLocationButtonEnabled: false,
+                    ],
                   ),
                 ),
               ),

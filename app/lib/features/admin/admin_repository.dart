@@ -120,6 +120,14 @@ class AdminRepository {
   Future<void> updateDriver(String id, Map<String, dynamic> changes) =>
       _api.patch('admin/drivers/$id', body: changes);
 
+  Future<List<String>> driverRouteIds(String id) async {
+    final body = await _api.get('admin/drivers/$id/routes') as Json;
+    return (body['route_ids'] as List).cast<String>();
+  }
+
+  Future<void> replaceDriverRoutes(String id, List<String> routeIds) =>
+      _api.put('admin/drivers/$id/routes', body: {'route_ids': routeIds});
+
   /// New temporary password (shown once); unlocks the account and signs the
   /// driver out everywhere.
   Future<String> resetDriverPassword(String id) async {

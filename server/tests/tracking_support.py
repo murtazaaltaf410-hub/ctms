@@ -128,6 +128,10 @@ def driver_with_bus(con, create_user, driver_login, make_route) -> Callable:
             driver_id,
             route["id"],
         )
+        await con.execute(
+            "insert into public.driver_route_assignments (driver_id, route_id) values ($1, $2)",
+            driver_id, route["id"],
+        )
         tokens = await driver_login(phone)
         return {
             "driver_id": driver_id,

@@ -45,6 +45,34 @@ async def test_driver_validation(client, admin, create_bus):
     assert resp.status_code == 400 and "bus_id" in resp.json()["error"]["message"]
 
 
+async def test_replace_driver_route_assignments(client, admin, con, create_user):
+    actor, headers = await admin()
+    driver = await create_user("driver", phone="+919000000304")
+    first = await insert_route(con, name="North")
+    second = await insert_route(con, name="South")
+    url = f"/api/v1/admin/drivers/{driver}/routes"
+
+    resp = await client.put(url, json={"route_ids": [str(second), str(first)]}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["driver_id"] == str(driver)
+    assert set(body["route_ids"]) == {str(first), str(second)}
+    assert {route["name"] for route in body["routes"]} == {"North", "South"}
+    assert await con.fetchval("select count(*) from public.driver_route_assignments where driver_id = $1", driver) == 2
+    audit = await con.fetchrow(
+        "select actor_id, meta from public.audit_log where action = 'driver.route_assignments.replace'"
+    )
+    assert audit["actor_id"] == actor and set(audit["meta"]["route_ids"]) == {str(first), str(second)}
+
+    # An empty set clears access; duplicates and unavailable routes are refused atomically.
+    assert (await client.put(url, json={"route_ids": []}, headers=headers)).json()["routes"] == []
+    duplicate = await client.put(url, json={"route_ids": [str(first), str(first)]}, headers=headers)
+    assert duplicate.status_code == 400 and err(duplicate) == "VALIDATION_ERROR"
+    await con.execute("update public.routes set active = false where id = $1", first)
+    unavailable = await client.put(url, json={"route_ids": [str(first)]}, headers=headers)
+    assert unavailable.status_code == 400 and err(unavailable) == "VALIDATION_ERROR"
+
+
 async def test_u8_substitute_relink_is_audited_and_trips_keep_actual_driver(client, admin, con, create_bus):
     actor, headers = await admin()
     bus = await create_bus()

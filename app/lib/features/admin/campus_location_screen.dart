@@ -164,11 +164,42 @@ class _CampusLocationFormState extends ConsumerState<CampusLocationForm> {
             height: 300,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: builder(
-                context,
-                _pin,
-                radius,
-                (position) => setState(() => _pin = position),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: builder(
+                      context,
+                      _pin,
+                      radius,
+                      (position) => setState(() => _pin = position),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      child: IconButton(
+                        tooltip: 'Open full screen map',
+                        icon: const Icon(Icons.fullscreen),
+                        onPressed: () async {
+                          final pin = await Navigator.of(context).push<LatLng>(
+                            MaterialPageRoute(
+                              builder: (_) => _CampusMapPicker(
+                                initialPin: _pin,
+                                radiusM: radius,
+                              ),
+                            ),
+                          );
+                          if (pin != null && mounted) {
+                            setState(() => _pin = pin);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -255,7 +286,82 @@ class _CampusLocationFormState extends ConsumerState<CampusLocationForm> {
           ),
       },
       onTap: onPlace,
+      scrollGesturesEnabled: true,
+      zoomGesturesEnabled: true,
+      rotateGesturesEnabled: false,
+      tiltGesturesEnabled: false,
       myLocationButtonEnabled: false,
+    );
+  }
+}
+
+class _CampusMapPicker extends StatefulWidget {
+  const _CampusMapPicker({required this.initialPin, required this.radiusM});
+
+  final LatLng? initialPin;
+  final double radiusM;
+
+  @override
+  State<_CampusMapPicker> createState() => _CampusMapPickerState();
+}
+
+class _CampusMapPickerState extends State<_CampusMapPicker> {
+  LatLng? _pin;
+
+  @override
+  void initState() {
+    super.initState();
+    _pin = widget.initialPin;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Set campus location'),
+        actions: [
+          TextButton(
+            onPressed: _pin == null ? null : () => Navigator.pop(context, _pin),
+            child: const Text('Use location'),
+          ),
+        ],
+      ),
+      body: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: _pin ?? _defaultCenter,
+          zoom: 16,
+        ),
+        mapType: MapType.hybrid,
+        markers: {
+          if (_pin != null)
+            Marker(
+              markerId: const MarkerId('campus'),
+              position: _pin!,
+              draggable: true,
+              onDragEnd: (pin) => setState(() => _pin = pin),
+            ),
+        },
+        circles: {
+          if (_pin != null)
+            Circle(
+              circleId: const CircleId('campus-radius'),
+              center: _pin!,
+              radius: widget.radiusM,
+              strokeWidth: 2,
+              strokeColor: color,
+              fillColor: color.withValues(alpha: 0.15),
+            ),
+        },
+        onTap: (pin) => setState(() => _pin = pin),
+        scrollGesturesEnabled: true,
+        zoomGesturesEnabled: true,
+        rotateGesturesEnabled: true,
+        tiltGesturesEnabled: true,
+        compassEnabled: true,
+        zoomControlsEnabled: true,
+        myLocationButtonEnabled: false,
+      ),
     );
   }
 }

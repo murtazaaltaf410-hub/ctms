@@ -280,7 +280,8 @@ async def test_x6_two_concurrent_approvals_for_the_last_seat(google):
                 "insert into public.users (role, name, email) values ('student', $1, $2) returning id",
                 f"Racer {n}", f"racer{n}-{uuid4().hex[:6]}@uok.edu.in")
             await con.execute(
-                "insert into public.student_profiles (user_id, full_name, route_id) values ($1, 'Racer', $2)",
+                """insert into public.student_profiles (user_id, full_name, phone, department, route_id)
+                   values ($1, 'Racer', '+919876543210', 'Physics', $2)""",
                 uid, route)
             ids["users"].append(uid)
             students.append(uid)
@@ -369,12 +370,52 @@ async def test_x6_admin_list_filters_search_cursor_and_summary(client, admin, ma
     assert (await client.get(f"{API}/admin/students/{uuid4()}", headers=adm)).status_code == 404
 
     summary = (await client.get(f"{API}/admin/students/summary", headers=adm)).json()
-    assert summary["totals"] == {"pending": 1, "approved": 1, "rejected": 1, "total": 3}
+    assert summary["totals"] == {"unregistered": 0, "pending": 1, "approved": 1, "rejected": 1, "total": 3}
     routes = {r["route_name"]: r for r in summary["routes"]}
     assert (routes["R1"]["approved"], routes["R1"]["rejected"], routes["R1"]["pending"]) == (1, 1, 0)
     assert routes["R2"]["pending"] == 1
     bus = next(b for b in summary["buses"] if b["bus_id"] == str(bus1))
     assert (bus["capacity"], bus["assigned"], bus["seats_left"]) == (5, 1, 4)
+
+
+async def test_x6_admin_sees_unregistered_and_incomplete_students_with_safe_diagnostics(
+        client, con, admin, make_route, new_student):
+    route = await make_route()
+    unregistered_id, _ = await new_student(1)
+    incomplete_id, _ = await new_student(2)
+    await con.execute(
+        """insert into public.student_profiles (user_id, full_name, phone, department, route_id)
+           values ($1, 'Incomplete Student', null, 'Physics', $2)""",
+        incomplete_id, route["id"])
+    _, adm = await admin()
+
+    response = await client.get(f"{API}/admin/students", headers=adm)
+    assert response.status_code == 200, response.text
+    students = {item["id"]: item for item in response.json()["items"]}
+    assert students[str(unregistered_id)]["status"] is None
+    assert students[str(unregistered_id)]["registration_state"] == "unregistered"
+    assert students[str(unregistered_id)]["approval_diagnostic"] == "Student has not submitted a registration."
+    assert students[str(incomplete_id)]["registration_state"] == "incomplete"
+    assert "phone" in students[str(incomplete_id)]["approval_diagnostic"]
+    assert PHONE not in students[str(incomplete_id)]["approval_diagnostic"]
+
+    detail = await client.get(f"{API}/admin/students/{unregistered_id}", headers=adm)
+    assert detail.status_code == 200 and detail.json()["registration_state"] == "unregistered"
+    summary = (await client.get(f"{API}/admin/students/summary", headers=adm)).json()
+    assert summary["totals"]["unregistered"] == 1 and summary["totals"]["total"] == 2
+
+
+async def test_x6_approval_refuses_an_incomplete_registration(client, con, admin, make_route, set_bus, new_student):
+    route = await make_route()
+    student_id, _ = await new_student()
+    await con.execute(
+        """insert into public.student_profiles (user_id, full_name, phone, department, route_id)
+           values ($1, 'Incomplete Student', null, 'Physics', $2)""",
+        student_id, route["id"])
+    _, adm = await admin()
+    response = await approve(client, adm, student_id, await set_bus(route["id"]), expect=400)
+    assert err(response) == "VALIDATION_ERROR"
+    assert "incomplete" in response.json()["error"]["message"]
 
 
 # --- role checks ----------------------------------------------------------------------------------------

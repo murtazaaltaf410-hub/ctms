@@ -36,6 +36,12 @@ async def test_tc16_routes_api_failure_leaves_a_draft(client, con, live_app, adm
     ok = await client.patch(f"/api/v1/admin/routes/{route_id}", json={"regenerate": True}, headers=headers)
     assert ok.status_code == 200, ok.text
     assert ok.json()["status"] == "active" and ok.json()["polyline"] and ok.json()["polyline_error"] is None
+    assigned = await client.put(
+        f"/api/v1/admin/drivers/{driver['driver_id']}/routes",
+        json={"route_ids": [route_id]},
+        headers=headers,
+    )
+    assert assigned.status_code == 200, assigned.text
     start = await client.post("/api/v1/trips/start", json={"route_id": route_id}, headers=driver["headers"])
     assert start.status_code == 201
 

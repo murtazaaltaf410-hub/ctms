@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 import '../../core/ui/polyline.dart';
+import '../../core/ui/maps/transit_map.dart';
+import '../../core/ui/maps/transit_map_models.dart';
 import '../../core/ui/theme.dart';
 import '../../core/ui/widgets/connection_banner.dart';
 import '../../privacy/app_config.dart';
@@ -518,46 +519,48 @@ class _BusMap extends StatelessWidget {
   final RouteDetail? route;
   @override
   Widget build(BuildContext context) {
-    final center = LatLng(buses.first.lat, buses.first.lng);
-    return SizedBox(
+    final selectedRoute = route;
+    return TransitMapPreview(
+      title: 'Live bus map',
       height: 300,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: GoogleMap(
-          initialCameraPosition: CameraPosition(target: center, zoom: 14),
-          markers: {
-            for (final bus in buses)
-              Marker(
-                markerId: MarkerId(bus.busId),
-                position: LatLng(bus.lat, bus.lng),
-                infoWindow: InfoWindow(
-                  title: bus.label,
-                  snippet:
-                      '${bus.routeName} · ${bus.direction.label} · ${_statusText(bus.status)}',
+      data: TransitMapData(
+        buses: [
+          for (final bus in buses)
+            TransitMapBus(
+              id: bus.busId,
+              label: bus.label,
+              position: MapCoordinate(bus.lat, bus.lng),
+              heading: bus.heading,
+              detail:
+                  '${bus.routeName} · ${bus.direction.label} · ${_statusText(bus.status)}',
+            ),
+        ],
+        routes: selectedRoute == null
+            ? const []
+            : [
+                TransitMapRoute(
+                  id: selectedRoute.id,
+                  name: selectedRoute.name,
+                  points: selectedRoute.polyline == null
+                      ? const []
+                      : [
+                          for (final point in decodePolyline(
+                            selectedRoute.polyline!,
+                          ))
+                            MapCoordinate(point.latitude, point.longitude),
+                        ],
+                  stops: [
+                    for (final stop in selectedRoute.stops)
+                      TransitMapStop(
+                        id: stop.id,
+                        label: stop.name,
+                        position: MapCoordinate(stop.lat, stop.lng),
+                        routeId: selectedRoute.id,
+                      ),
+                  ],
+                  color: AppTheme.seed,
                 ),
-              ),
-            for (final stop in route?.stops ?? <Stop>[])
-              Marker(
-                markerId: MarkerId('stop-${stop.id}'),
-                position: LatLng(stop.lat, stop.lng),
-                infoWindow: InfoWindow(title: stop.name),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-              ),
-          },
-          polylines: route?.polyline == null
-              ? const {}
-              : {
-                  Polyline(
-                    polylineId: const PolylineId('route'),
-                    points: decodePolyline(route!.polyline!),
-                    color: AppTheme.seed,
-                    width: 5,
-                  ),
-                },
-          myLocationButtonEnabled: false,
-        ),
+              ],
       ),
     );
   }
