@@ -253,6 +253,12 @@ P7 notes for P8:
 - The dio base URL ends with `/api/v1/` and request paths are **relative, without a leading slash** (`api.get('buses/live')`). The tests assert the resolved URI.
 - The WebSocket goes through the `LiveChannel` interface, so tests use a fake. `WebSocketLiveChannel` wraps `WebSocketChannel.connect`, `ready`, `closeCode`, `closeReason` and `sink.close(code, reason)`.
 
+## UI fonts (design re-skin) — bundled assets, no package
+- **Newsreader** (headings, serif; variable `opsz,wght`), `app/assets/fonts/Newsreader.ttf`, family `Newsreader`. SIL OFL 1.1, source github.com/google/fonts `ofl/newsreader`; licence `OFL-Newsreader.txt`.
+- **Geist** (UI text; variable `wght`), `app/assets/fonts/Geist.ttf`, family `Geist`. OFL 1.1, `ofl/geist`; licence `OFL-Geist.txt`.
+- **IBM Plex Mono** (numbers/data; static 400/500/600/700), `app/assets/fonts/IBMPlexMono-*.ttf`, family `IBMPlexMono`. OFL 1.1, `ofl/ibmplexmono`; licence `OFL-IBMPlexMono.txt`.
+- Declared under `flutter: fonts:` in `pubspec.yaml`; used via `TextStyle(fontFamily: ..., fontFeatures: [FontFeature.tabularFigures()])` (Flutter `dart:ui`). Source: docs/design/README.md decision 3.
+
 ---
 
 ## Cross-cutting anti-patterns (reject in review)
