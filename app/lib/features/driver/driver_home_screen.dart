@@ -8,21 +8,33 @@ import '../../auth/auth_controller.dart';
 import '../../core/models/models.dart';
 import '../../core/ui/maps/transit_map.dart';
 import '../../core/ui/maps/transit_map_models.dart';
+import '../../core/ui/theme.dart';
 import '../../core/util/clock_format.dart';
 import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import 'driver_controller.dart';
 import 'driver_tracking.dart';
+import 'driver_widgets.dart';
 import 'roster_card.dart';
 
-class DriverHomeScreen extends ConsumerStatefulWidget {
+/// The driver workspace is always dark (night driving), whatever the system
+/// theme says.
+class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
 
   @override
-  ConsumerState<DriverHomeScreen> createState() => _DriverHomeScreenState();
+  Widget build(BuildContext context) =>
+      Theme(data: AppTheme.driverDark(), child: const _DriverBody());
 }
 
-class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
+class _DriverBody extends ConsumerStatefulWidget {
+  const _DriverBody();
+
+  @override
+  ConsumerState<_DriverBody> createState() => _DriverBodyState();
+}
+
+class _DriverBodyState extends ConsumerState<_DriverBody> {
   String? _routeId;
 
   /// Mornings default to the way in, afternoons and evenings to the way home.
@@ -128,6 +140,217 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
     }
   }
 
+  void _showSheet(String title, WidgetBuilder builder) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: CtmsText.headline(sheetContext, 24)),
+                const SizedBox(height: 12),
+                builder(sheetContext),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bus status and the optional note students see (the existing "report").
+  Widget _reportBody(Trip trip) => Consumer(
+    builder: (context, ref, _) {
+      final busy = ref.watch(driverControllerProvider.select((s) => s.busy));
+      final controller = ref.read(driverControllerProvider.notifier);
+      return Column(
+        children: [
+          DropdownButtonFormField<TripStatus>(
+            initialValue: trip.status,
+            decoration: const InputDecoration(labelText: 'Bus status'),
+            items: [
+              for (final status in TripStatus.values)
+                DropdownMenuItem(
+                  value: status,
+                  child: Text(_statusText(status)),
+                ),
+            ],
+            onChanged: busy
+                ? null
+                : (value) {
+                    if (value != null) controller.setStatus(value, _note.text);
+                  },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _note,
+            maxLength: 140,
+            decoration: const InputDecoration(
+              labelText: 'Optional note',
+              hintText: 'Shown to students',
+            ),
+          ),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonal(
+              onPressed: busy
+                  ? null
+                  : () => controller.setStatus(trip.status, _note.text),
+              child: const Text('Update status'),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  Widget _activeJourney(DriverState state, Trip trip) {
+    final c = context.ctms;
+    final roster = ref.watch(rosterProvider(trip.id));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JourneyCard(
+          direction: _journeyText(trip.direction),
+          startedAt: trip.startedAt,
+          distanceM: trip.distanceM,
+          assigned: roster.hasValue ? roster.value!.length : null,
+        ),
+        const SizedBox(height: 20),
+        RouteStrip(
+          caption: trip.movedAt == null
+              ? 'Not moving yet'
+              : 'Moving since ${formatClock(trip.movedAt!)}',
+          status: trip.status,
+          statusLabel: _statusText(trip.status),
+        ),
+        if (trip.note != null && trip.note!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              trip.note!,
+              style: CtmsText.ui(context, 14).copyWith(color: c.muted),
+            ),
+          ),
+        const SizedBox(height: 28),
+        Text('Journey controls', style: CtmsText.ui(context, 18)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _PickupsTile(
+                tripId: trip.id,
+                onTap: () => _showSheet(
+                  'Students waiting',
+                  (_) => _WaitingStudentsList(tripId: trip.id),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ControlTile(
+                key: const Key('roster-tile'),
+                icon: Icons.badge_outlined,
+                label: 'Roster',
+                onTap: () => _showSheet(
+                  'Roster',
+                  (_) => RosterCard(tripId: trip.id, initiallyExpanded: true),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ControlTile(
+                key: const Key('report-tile'),
+                icon: Icons.warning_amber_rounded,
+                label: 'Report',
+                onTap: () => _showSheet('Report', (_) => _reportBody(trip)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        EndJourneyButton(
+          label: state.busy ? 'Ending...' : endLabel(trip.direction),
+          onPressed: state.busy ? null : () => _confirmEnd(trip),
+        ),
+        const SizedBox(height: 24),
+        if (state.buffered > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '${state.buffered} location update${state.buffered == 1 ? '' : 's'} waiting to upload.',
+              style: CtmsText.ui(context, 14).copyWith(color: c.delayed),
+            ),
+          ),
+        DriverFooter(lastFixAt: trip.lastFixAt),
+      ],
+    );
+  }
+
+  Widget _ready(DriverState state) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Choose a route, then start sharing the bus location.',
+        style: CtmsText.ui(context, 15).copyWith(color: context.ctms.muted),
+      ),
+      const SizedBox(height: 24),
+      DropdownButtonFormField<String?>(
+        initialValue: _routeId,
+        decoration: const InputDecoration(labelText: 'Route'),
+        hint: const Text('Default route'),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('Use default route')),
+          for (final route in state.routes)
+            DropdownMenuItem(value: route.id, child: Text(route.name)),
+        ],
+        onChanged: state.busy
+            ? null
+            : (value) => setState(() => _routeId = value),
+      ),
+      const SizedBox(height: 16),
+      SegmentedButton<TripDirection>(
+        segments: [
+          for (final direction in TripDirection.values)
+            ButtonSegment(
+              value: direction,
+              label: Text(direction.label),
+              icon: Icon(
+                direction == TripDirection.toCampus
+                    ? Icons.school_outlined
+                    : Icons.home_outlined,
+              ),
+            ),
+        ],
+        selected: {_direction},
+        onSelectionChanged: state.busy
+            ? null
+            : (value) => setState(() => _direction = value.first),
+      ),
+      const SizedBox(height: 24),
+      SizedBox(
+        height: 56,
+        child: FilledButton.icon(
+          onPressed: state.busy ? null : _start,
+          icon: const Icon(Icons.play_arrow),
+          label: Text(state.busy ? 'Starting journey...' : 'Start Journey'),
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     ref.listen<DriverState>(driverControllerProvider, (previous, next) {
@@ -140,152 +363,35 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
     final controller = ref.read(driverControllerProvider.notifier);
     final trip = state.trip;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My trip'),
-        actions: [
-          IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: () =>
-                ref.read(authControllerProvider.notifier).signOut(),
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: controller.load,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            if (state.error != null)
-              _ErrorBanner(message: state.error!.userMessage),
-            if (state.loading)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (trip == null) ...[
-              Text(
-                'Ready to drive',
-                style: Theme.of(context).textTheme.headlineSmall,
+      backgroundColor: context.ctms.bg,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: controller.load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            children: [
+              DriverHeader(
+                eyebrow: trip == null
+                    ? 'READY TO DRIVE'
+                    : busEyebrow(trip.busLabel),
+                title: trip?.routeName ?? 'My trip',
+                onProfile: () =>
+                    ref.read(authControllerProvider.notifier).signOut(),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Choose a route, then start sharing the bus location.',
-              ),
-              const SizedBox(height: 24),
-              DropdownButtonFormField<String?>(
-                initialValue: _routeId,
-                decoration: const InputDecoration(labelText: 'Route'),
-                hint: const Text('Default route'),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('Use default route'),
-                  ),
-                  for (final route in state.routes)
-                    DropdownMenuItem(value: route.id, child: Text(route.name)),
-                ],
-                onChanged: state.busy
-                    ? null
-                    : (value) => setState(() => _routeId = value),
-              ),
-              const SizedBox(height: 16),
-              SegmentedButton<TripDirection>(
-                segments: [
-                  for (final direction in TripDirection.values)
-                    ButtonSegment(
-                      value: direction,
-                      label: Text(direction.label),
-                      icon: Icon(
-                        direction == TripDirection.toCampus
-                            ? Icons.school_outlined
-                            : Icons.home_outlined,
-                      ),
-                    ),
-                ],
-                selected: {_direction},
-                onSelectionChanged: state.busy
-                    ? null
-                    : (value) => setState(() => _direction = value.first),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: state.busy ? null : _start,
-                icon: const Icon(Icons.play_arrow),
-                label: Text(
-                  state.busy ? 'Starting journey...' : 'Start Journey',
-                ),
-              ),
-            ] else ...[
-              Text(
-                trip.routeName,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              Text('Bus ${trip.busLabel} · ${_journeyText(trip.direction)}'),
-              Text(
-                'Started ${formatClock(trip.startedAt)}'
-                '${trip.movedAt == null ? '' : ' · Moving since ${formatClock(trip.movedAt!)}'}',
-              ),
-              const SizedBox(height: 16),
-              _StatusChip(status: trip.status),
-              if (state.buffered > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    '${state.buffered} location update${state.buffered == 1 ? '' : 's'} waiting to upload.',
-                  ),
-                ),
-              const SizedBox(height: 16),
-              _WaitingStudentsCard(tripId: trip.id),
-              const SizedBox(height: 8),
-              RosterCard(tripId: trip.id),
-              const SizedBox(height: 24),
-              DropdownButtonFormField<TripStatus>(
-                initialValue: trip.status,
-                decoration: const InputDecoration(labelText: 'Bus status'),
-                items: [
-                  for (final status in TripStatus.values)
-                    DropdownMenuItem(
-                      value: status,
-                      child: Text(_statusText(status)),
-                    ),
-                ],
-                onChanged: state.busy
-                    ? null
-                    : (value) {
-                        if (value != null) {
-                          controller.setStatus(value, _note.text);
-                        }
-                      },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _note,
-                maxLength: 140,
-                decoration: const InputDecoration(
-                  labelText: 'Optional note',
-                  hintText: 'Shown to students',
-                ),
-              ),
-              FilledButton.tonal(
-                onPressed: state.busy
-                    ? null
-                    : () => controller.setStatus(trip.status, _note.text),
-                child: const Text('Update status'),
-              ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-                onPressed: state.busy ? null : () => _confirmEnd(trip),
-                icon: const Icon(Icons.flag),
-                label: Text(
-                  state.busy ? 'Ending...' : endLabel(trip.direction),
-                ),
-              ),
+              const SizedBox(height: 20),
+              if (state.error != null)
+                _ErrorBanner(message: state.error!.userMessage),
+              if (state.loading)
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (trip == null)
+                _ready(state)
+              else
+                _activeJourney(state, trip),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -354,19 +460,19 @@ String _statusText(TripStatus status) => switch (status) {
   TripStatus.breakdown => 'Breakdown',
 };
 
-/// Students who asked to be picked up on this leg. Refreshes every 15 s and when a
-/// `pickup_nearby` push arrives while the app is open.
-class _WaitingStudentsCard extends ConsumerStatefulWidget {
-  const _WaitingStudentsCard({required this.tripId});
+/// Pickups tile. Owns the 15 s refresh and the `pickup_nearby` push listener so
+/// the alert still shows while the list sheet is closed.
+class _PickupsTile extends ConsumerStatefulWidget {
+  const _PickupsTile({required this.tripId, required this.onTap});
 
   final String tripId;
+  final VoidCallback onTap;
 
   @override
-  ConsumerState<_WaitingStudentsCard> createState() =>
-      _WaitingStudentsCardState();
+  ConsumerState<_PickupsTile> createState() => _PickupsTileState();
 }
 
-class _WaitingStudentsCardState extends ConsumerState<_WaitingStudentsCard> {
+class _PickupsTileState extends ConsumerState<_PickupsTile> {
   Timer? _timer;
   StreamSubscription<ForegroundPush>? _push;
 
@@ -399,61 +505,66 @@ class _WaitingStudentsCardState extends ConsumerState<_WaitingStudentsCard> {
 
   @override
   Widget build(BuildContext context) {
-    final students =
-        ref.watch(waitingStudentsProvider(widget.tripId)).value ?? const [];
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              students.isEmpty
-                  ? 'No students waiting'
-                  : '${students.length} student${students.length == 1 ? '' : 's'} waiting',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            if (students.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 180,
-                child: TransitMapPreview(
-                  title: 'Waiting students',
-                  data: TransitMapData(
-                    stops: [
-                      for (final student in students)
-                        TransitMapStop(
-                          id: student.id,
-                          label: student.label ?? 'Student waiting',
-                          position: MapCoordinate(student.lat, student.lng),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              for (final student in students)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.person_pin_circle_outlined),
-                  title: Text(student.label ?? 'Student waiting'),
-                  trailing: student.distanceM == null
-                      ? null
-                      : Text('${student.distanceM!.round()} m'),
-                ),
-            ],
-          ],
-        ),
-      ),
+    final count =
+        ref.watch(waitingStudentsProvider(widget.tripId)).value?.length ?? 0;
+    return ControlTile(
+      key: const Key('pickups-tile'),
+      icon: Icons.groups_outlined,
+      label: 'Pickups',
+      badge: count == 0 ? null : '$count',
+      onTap: widget.onTap,
     );
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
-  final TripStatus status;
+/// Students who asked to be picked up on this leg, shown in the Pickups sheet.
+class _WaitingStudentsList extends ConsumerWidget {
+  const _WaitingStudentsList({required this.tripId});
+
+  final String tripId;
+
   @override
-  Widget build(BuildContext context) => Chip(label: Text(_statusText(status)));
+  Widget build(BuildContext context, WidgetRef ref) {
+    final students =
+        ref.watch(waitingStudentsProvider(tripId)).value ?? const [];
+    if (students.isEmpty) return const Text('No students waiting');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${students.length} student${students.length == 1 ? '' : 's'} waiting',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 180,
+          child: TransitMapPreview(
+            title: 'Waiting students',
+            data: TransitMapData(
+              stops: [
+                for (final student in students)
+                  TransitMapStop(
+                    id: student.id,
+                    label: student.label ?? 'Student waiting',
+                    position: MapCoordinate(student.lat, student.lng),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        for (final student in students)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.person_pin_circle_outlined),
+            title: Text(student.label ?? 'Student waiting'),
+            trailing: student.distanceM == null
+                ? null
+                : Text('${student.distanceM!.round()} m'),
+          ),
+      ],
+    );
+  }
 }
 
 class _ErrorBanner extends StatelessWidget {

@@ -251,4 +251,34 @@ void main() {
     await tester.pumpAndSettle();
     await close(tester, h);
   });
+
+  testWidgets('journey card, controls and report sheet', (tester) async {
+    final h = await pump(tester, (o) {
+      if (o.path == 'trips/active') return jsonBody(200, activeJson());
+      if (o.path == 'trips/t1/roster') {
+        return jsonBody(200, {
+          'items': [
+            {'name': 'Aisha Khan', 'department': 'Physics'},
+          ],
+        });
+      }
+      return jsonBody(200, {'items': []});
+    });
+    expect(find.byKey(const Key('journey-card')), findsOneWidget);
+    expect(find.text('ON DUTY · BUS 1'), findsOneWidget);
+    expect(find.text('4.2 km'), findsOneWidget);
+    expect(find.text('Assigned'), findsOneWidget);
+    expect(find.text('Precise location active'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('roster-tile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Aisha Khan'), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('report-tile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Update status'), findsOneWidget);
+    await close(tester, h);
+  });
 }

@@ -8,9 +8,14 @@ import 'driver_controller.dart';
 /// The approved students assigned to this bus (name and department only; the
 /// server sends no phone numbers). Refreshes every 15 s like the waiting card.
 class RosterCard extends ConsumerStatefulWidget {
-  const RosterCard({super.key, required this.tripId});
+  const RosterCard({
+    super.key,
+    required this.tripId,
+    this.initiallyExpanded = false,
+  });
 
   final String tripId;
+  final bool initiallyExpanded;
 
   @override
   ConsumerState<RosterCard> createState() => _RosterCardState();
@@ -48,6 +53,7 @@ class _RosterCardState extends ConsumerState<RosterCard> {
     return Card(
       child: ExpansionTile(
         key: const Key('roster-card'),
+        initiallyExpanded: widget.initiallyExpanded,
         leading: const Icon(Icons.groups_outlined),
         title: Text(title, style: Theme.of(context).textTheme.titleMedium),
         // Nothing to expand while empty or not loaded.
