@@ -10,6 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../helpers.dart';
 import '../support.dart';
 
+/// Extra buses a test wants in the summary; cleared after every test.
+final extraBuses = <Map<String, dynamic>>[];
+
 Map<String, dynamic> summaryJson() => {
   'totals': {
     'unregistered': 0,
@@ -43,6 +46,7 @@ Map<String, dynamic> summaryJson() => {
       'assigned': 0,
       'seats_left': 30,
     },
+    ...extraBuses,
   ],
   'routes': [
     {
@@ -56,6 +60,7 @@ Map<String, dynamic> summaryJson() => {
 };
 
 void main() {
+  tearDown(extraBuses.clear);
   late Harness h;
   late List<Map<String, dynamic>> all;
   ResponseBody? Function(RequestOptions)? approveOverride;
@@ -290,6 +295,28 @@ void main() {
     expect(find.text('Bus 1 is full (40 of 40 seats)'), findsOneWidget);
     // The sheet stays open so the admin can pick another bus.
     expect(find.byKey(const Key('student-approve')), findsOneWidget);
+  });
+
+  testWidgets('a bus is offered for every route its driver runs', (
+    tester,
+  ) async {
+    // Bus 7's own route is r2, but its driver is also assigned to r1.
+    extraBuses.add({
+      'bus_id': 'b7',
+      'label': 'Bus 7',
+      'route_id': 'r2',
+      'route_ids': ['r2', 'r1'],
+      'capacity': 5,
+      'assigned': 0,
+      'seats_left': 5,
+    });
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pick-bus-b7')), findsOneWidget);
+    expect(find.byKey(const Key('pick-bus-b9')), findsNothing);
   });
 
   testWidgets('approve with no free bus explains instead of calling', (

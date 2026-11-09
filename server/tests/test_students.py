@@ -22,7 +22,7 @@ from app.main import create_app
 from tests.admin_helpers import admin, err, insert_route  # noqa: F401
 from tests.alerts_support import alert_count, engine, push, student, world  # noqa: F401
 from tests.conftest import bearer, make_config
-from tests.tracking_support import FakeWS, along_fix, fake_clock, hub_clients, wait_until  # noqa: F401
+from tests.tracking_support import FakeWS, along_fix, driver_with_bus, fake_clock, hub_clients, wait_until  # noqa: F401
 
 pytest_plugins = ["tests.tracking_support"]
 
@@ -246,6 +246,28 @@ async def test_x6_seat_limit_reassign_and_reject_frees_the_seat(client, admin, m
     seats = {b["label"]: b for b in summary["buses"]}
     assert seats["A"]["assigned"] == 1 and seats["A"]["seats_left"] == 0
     assert seats["B"]["assigned"] == 0 and seats["B"]["seats_left"] == 1
+
+
+async def test_x6_bus_serves_every_route_its_driver_is_assigned_to(
+        client, con, admin, make_route, register, driver_with_bus):
+    """The admin decides which routes a driver runs; a bus seats students of any of them (one seat pool)."""
+    first, second, third = await make_route(), await make_route("Second"), await make_route("Third")
+    d = await driver_with_bus(route=first)
+    await con.execute("update public.buses set capacity = 1 where id = $1", d["bus_id"])
+    await con.execute("insert into public.driver_route_assignments (driver_id, route_id) values ($1, $2)",
+                      d["driver_id"], second["id"])
+    _, adm = await admin()
+    buses = (await client.get(f"{API}/admin/students/summary", headers=adm)).json()["buses"]
+    mine = next(b for b in buses if b["bus_id"] == str(d["bus_id"]))
+    assert mine["route_id"] == str(first["id"])  # unchanged for older clients
+    assert set(mine["route_ids"]) == {str(first["id"]), str(second["id"])}
+    uid, _ = await register(1, second["id"])
+    resp = await approve(client, adm, uid, d["bus_id"])
+    assert resp.json()["status"] == "approved" and resp.json()["bus_id"] == str(d["bus_id"])
+    uid3, _ = await register(2, third["id"])  # a route the driver does not run is still refused
+    assert err(await approve(client, adm, uid3, d["bus_id"], expect=400)) == "VALIDATION_ERROR"
+    uid4, _ = await register(3, first["id"])  # seats are shared across routes: the bus is now full
+    assert err(await approve(client, adm, uid4, d["bus_id"], expect=409)) == "NO_SEAT"
 
 
 async def test_x6_reject_needs_a_note_and_a_known_student(client, admin, make_route, register):

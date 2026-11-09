@@ -446,6 +446,7 @@ class BusSeats {
     required this.busId,
     required this.label,
     this.routeId,
+    this.routeIds = const [],
     this.capacity,
     required this.assigned,
     this.seatsLeft,
@@ -455,13 +456,25 @@ class BusSeats {
     busId: j['bus_id'] as String,
     label: j['label'] as String,
     routeId: j['route_id'] as String?,
+    routeIds: [
+      for (final id in (j['route_ids'] as List?) ?? const []) id as String,
+    ],
     capacity: (j['capacity'] as num?)?.toInt(),
     assigned: (j['assigned'] as num?)?.toInt() ?? 0,
     seatsLeft: (j['seats_left'] as num?)?.toInt(),
   );
 
   final String busId, label;
+
+  /// The bus's own student route.
   final String? routeId;
+
+  /// Every route the bus serves: its own plus the routes its driver may run.
+  /// Older servers omit it, so [servesRoute] falls back to [routeId].
+  final List<String> routeIds;
+
+  bool servesRoute(String? route) =>
+      route != null && (routeIds.contains(route) || routeId == route);
 
   /// Null when the office has not set a capacity.
   final int? capacity;
@@ -523,7 +536,7 @@ class StudentSummary {
   /// Buses on [routeId] that can take another student.
   List<BusSeats> busesWithSeats(String? routeId) => [
     for (final bus in buses)
-      if (bus.routeId == routeId && bus.hasFreeSeat) bus,
+      if (bus.servesRoute(routeId) && bus.hasFreeSeat) bus,
   ];
 }
 

@@ -107,7 +107,10 @@ class StatusCounts(ApiModel):
 class BusSeats(ApiModel):
     bus_id: UUID
     label: str
-    route_id: UUID | None
+    route_id: UUID | None = Field(description="The bus's own student route (default_route_id)")
+    route_ids: list[UUID] = Field(
+        default_factory=list,
+        description="Every route this bus serves: its own route plus the routes its driver is assigned to")
     capacity: int | None
     assigned: int
     seats_left: int | None = Field(description="null when capacity is not set")

@@ -3,7 +3,9 @@
 Approve and reassign run in ONE transaction that locks the student's profile and then the bus row
 (`select ... for update`), so two admins competing for the last seat are serialised: exactly one
 wins and the other gets 409 NO_SEAT. A bus must be active, run the student's route
-(`buses.default_route_id`), have a capacity set (null = not set -> NO_SEAT) and a free seat.
+(`buses.default_route_id`, or any route its driver is assigned to in `driver_route_assignments`: the
+driver runs one at a time but the bus has ONE pool of seats), have a capacity set (null = not set ->
+NO_SEAT) and a free seat.
 There is no attendance tracking: only registration, assignment, roster and seat counts.
 """
 
@@ -118,6 +120,10 @@ async def summary(user: AdminUser, con: Conn) -> StudentSummary:
                            total=sum(counts.values()) + unregistered)
     buses = await con.fetch(
         """select b.id as bus_id, b.label, b.default_route_id as route_id, b.capacity,
+                  coalesce((select array_agg(distinct x) from (
+                              select b.default_route_id as x
+                              union select dra.route_id from public.driver_route_assignments dra
+                                     where dra.driver_id = b.driver_id) s where x is not null), '{}') as route_ids,
                   (select count(*)::int from public.student_profiles sp
                     where sp.bus_id = b.id and sp.status = 'approved') as assigned
              from public.buses b where b.active order by b.label, b.id""")
@@ -130,7 +136,8 @@ async def summary(user: AdminUser, con: Conn) -> StudentSummary:
             group by r.id, r.name order by r.name, r.id""")
     return StudentSummary(
         totals=totals,
-        buses=[BusSeats(bus_id=b["bus_id"], label=b["label"], route_id=b["route_id"], capacity=b["capacity"],
+        buses=[BusSeats(bus_id=b["bus_id"], label=b["label"], route_id=b["route_id"], route_ids=b["route_ids"],
+                        capacity=b["capacity"],
                         assigned=b["assigned"],
                         seats_left=None if b["capacity"] is None else max(0, b["capacity"] - b["assigned"]))
                for b in buses],
@@ -158,13 +165,18 @@ async def _assign(request: Request, con: asyncpg.Connection, admin_id: UUID, stu
         if reassign and prof["status"] != "approved":
             raise ValidationFailed("status: only an approved student can be reassigned; approve first")
         bus = await con.fetchrow(
-            "select id, label, active, default_route_id, capacity from public.buses where id = $1 for update",
+            """select id, label, active, default_route_id, driver_id, capacity
+                 from public.buses where id = $1 for update""",
             bus_id)
         if bus is None:
             raise NotFound("Bus not found")
         if not bus["active"]:
             raise ValidationFailed("bus_id: the bus is not active")
-        if prof["route_id"] is None or bus["default_route_id"] != prof["route_id"]:
+        serves = bus["default_route_id"] == prof["route_id"] or await con.fetchval(
+            """select exists(select 1 from public.driver_route_assignments
+                              where driver_id = $1 and route_id = $2)""",
+            bus["driver_id"], prof["route_id"])
+        if prof["route_id"] is None or not serves:
             raise ValidationFailed("bus_id: the bus does not run the student's route "
                                    "(bus route and student route differ)")
         if bus["capacity"] is None:

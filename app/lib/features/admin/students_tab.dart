@@ -201,7 +201,7 @@ class _SummaryCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
-                    bus.describe(routeNames[bus.routeId]),
+                    bus.describe(_servedRouteNames(bus, routeNames)),
                     key: Key('bus-seats-${bus.busId}'),
                   ),
                 ),
@@ -317,7 +317,7 @@ class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
     }
     final routeBuses = [
       for (final bus in summary.buses)
-        if (bus.routeId == _s.routeId) bus,
+        if (bus.servesRoute(_s.routeId)) bus,
     ];
     final candidates = [
       for (final bus in routeBuses)
@@ -529,4 +529,11 @@ class _RejectDialogState extends State<_RejectDialog> {
       ),
     ],
   );
+}
+
+/// "North Loop / Far Loop": every route the bus serves, not only its own.
+String? _servedRouteNames(BusSeats bus, Map<String, String> names) {
+  final ids = {if (bus.routeId != null) bus.routeId!, ...bus.routeIds};
+  if (ids.isEmpty) return null;
+  return ids.map((id) => names[id] ?? 'unknown').join(' / ');
 }
