@@ -88,6 +88,10 @@ class BusLive:
     # U6: stop_id -> distance along THIS trip's frozen polyline, taken when the trip
     # was loaded. Stop edits mid-trip never change it (they apply from the next trip).
     stop_along: dict[UUID, float] = field(default_factory=dict)
+    moved_at: datetime | None = None           # first fix above moved_speed_mps (journey really began)
+    arriving: bool = False                     # an arrival close is in flight; fires once
+    # from_campus only: the travel-order last stop (lowest sequence), cached at load time.
+    last_stop: tuple[float, float] | None = None
     last_stored_at: datetime | None = None     # history downsampling
     clock_skew_s: float | None = None          # T13: received - recorded, when large
     seen_fix_ids: OrderedDict[UUID, None] = field(default_factory=OrderedDict)

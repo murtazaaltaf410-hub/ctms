@@ -39,7 +39,9 @@ class TripOut(ApiModel):
     note: str | None
     started_at: UtcDateTime
     ended_at: UtcDateTime | None
-    closed_by: Literal["driver", "auto"] | None
+    closed_by: Literal["driver", "auto", "arrival"] | None
+    moved_at: UtcDateTime | None = Field(default=None, description="First fix above the moved-speed threshold")
+    arrived_at: UtcDateTime | None = Field(default=None, description="When the bus reached the geofence, if it did")
     distance_m: float
     last_fix_at: UtcDateTime | None
 

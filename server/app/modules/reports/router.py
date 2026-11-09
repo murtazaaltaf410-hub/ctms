@@ -1,6 +1,7 @@
 """Trip history and reports (PRD A6, TC18, launch gate LG4). Admin only (runbook: history is admin-only).
 
-GET /admin/trips?from&to&bus_id&cursor     trips, newest first: driver, times, distance_m, avg_speed, closed_by
+GET /admin/trips?from&to&bus_id&cursor     trips, newest first: driver, direction, started/moved/arrived/ended,
+                                           distance_m, avg_speed, closed_by (driver | auto | arrival)
 GET /admin/trips/{id}/path                 ordered positions for replay
 GET /admin/reports/summary?from&to         per-bus totals: trips, distance_m, running_time_s
 GET /admin/reports/trips.csv?from&to&bus_id   extension: CSV export of the trip list (LG4)
@@ -44,10 +45,13 @@ class TripReportOut(ApiModel):
     route_id: UUID
     route_name: str
     type: Literal["scheduled", "ad_hoc"]
+    direction: Literal["to_campus", "from_campus"]
     status: Literal["on_time", "delayed", "breakdown"]
     started_at: UtcDateTime
+    moved_at: UtcDateTime | None
+    arrived_at: UtcDateTime | None
     ended_at: UtcDateTime | None
-    closed_by: Literal["driver", "auto"] | None
+    closed_by: Literal["driver", "auto", "arrival"] | None
     distance_m: float
     duration_s: float
     avg_speed: float | None
@@ -110,7 +114,8 @@ _DURATION = "extract(epoch from (coalesce(t.ended_at, t.last_fix_at, t.started_a
 
 _TRIPS_SQL = f"""
     select t.id, t.bus_id, b.label as bus_label, t.driver_id, d.name as driver_name, t.route_id,
-           r.name as route_name, t.type, t.status, t.started_at, t.ended_at, t.closed_by, t.distance_m,
+           r.name as route_name, t.type, t.direction, t.status, t.started_at, t.moved_at,
+           t.arrived_at, t.ended_at, t.closed_by, t.distance_m,
            {_DURATION} as duration_s
     from public.trips t
     join public.buses b on b.id = t.bus_id
@@ -177,8 +182,9 @@ async def summary(user: AdminUser, con: Conn, from_: From = None, to: To = None)
     return SummaryOut(from_=start, to=end, buses=buses, totals=totals)
 
 
-CSV_COLUMNS = ["trip_id", "started_at", "ended_at", "bus_label", "driver_name", "route_name", "type", "status",
-               "closed_by", "distance_m", "duration_s", "avg_speed_mps", "avg_speed_kmh"]
+CSV_COLUMNS = ["trip_id", "started_at", "ended_at", "bus_label", "driver_name", "route_name", "type",
+               "direction", "status", "moved_at", "arrived_at", "closed_by", "distance_m",
+               "duration_s", "avg_speed_mps", "avg_speed_kmh"]
 
 
 def _cell(value: object) -> object:
@@ -203,7 +209,9 @@ async def trips_csv(request: Request, user: AdminUser, con: Conn, from_: From = 
         trip = _trip_out(row)
         writer.writerow([_cell(v) for v in (
             trip.id, iso_utc(trip.started_at), iso_utc(trip.ended_at) if trip.ended_at else "", trip.bus_label,
-            trip.driver_name, trip.route_name, trip.type, trip.status, trip.closed_by or "",
+            trip.driver_name, trip.route_name, trip.type, trip.direction, trip.status,
+            iso_utc(trip.moved_at) if trip.moved_at else "", iso_utc(trip.arrived_at) if trip.arrived_at else "",
+            trip.closed_by or "",
             round(trip.distance_m, 1), trip.duration_s, "" if trip.avg_speed is None else trip.avg_speed,
             "" if trip.avg_speed is None else round(trip.avg_speed * 3.6, 1),
         )])

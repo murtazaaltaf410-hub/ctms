@@ -33,6 +33,9 @@ PUBLIC_KEYS = (
     "student_fix_max_accuracy_m",
     "eta_display_cap_s",
     "timezone",
+    "campus_lat",
+    "campus_lng",
+    "campus_radius_m",
 )
 
 
@@ -49,6 +52,9 @@ class AppConfigOut(ApiModel):
     student_fix_max_accuracy_m: float
     eta_display_cap_s: float
     timezone: str
+    campus_lat: float | None = None   # null until an admin pins the campus (arrival geofence off)
+    campus_lng: float | None = None
+    campus_radius_m: float = 150
     env: str
     server_time: UtcDateTime
 

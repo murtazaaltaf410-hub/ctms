@@ -31,6 +31,7 @@ from app.live.hub import broadcast
 from app.live.messages import bus_position
 from app.live.state import BusLive
 from app.live.writer import LocationRow, RejectedRow, get_writer
+from app.modules.trips import service as trips
 
 log = logging.getLogger("ctms.tracking")
 
@@ -93,6 +94,8 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
     downsample = float(store.get_cached("history_downsample_s"))
     seen_limit = int(store.get_cached("live_seen_fix_ids_max"))
     tie = float(store.get_cached("snap_tie_tolerance_m"))
+    moved_speed = float(store.get_cached("moved_speed_mps"))
+    arrival_min_s = float(store.get_cached("arrival_min_trip_s"))
     writer = get_writer(app)
     result = IngestResult([], [])
     if not fixes:
@@ -100,6 +103,7 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
     fixes = sorted((Fix(f.fix_id, f.lat, f.lng, f.accuracy, f.speed, f.heading, _utc(f.recorded_at))
                     for f in fixes), key=lambda f: f.recorded_at)
     moved = False
+    arrival_at: datetime | None = None
     async with bus.lock:
         now = clock.now()
         known = await _known_fix_ids(app, bus, [f.fix_id for f in fixes], con)
@@ -147,6 +151,14 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
             bus.recorded_at, bus.received_at = fix.recorded_at, now
             bus.resnap(tie)
             moved = True
+            if bus.moved_at is None and max(sample or 0.0, bus.ema_speed_mps or 0.0) > moved_speed:
+                bus.moved_at = fix.recorded_at
+                writer.queue_trip_moved(bus.trip_id, fix.recorded_at)
+            if (con is not None and not bus.arriving and bus.moved_at is not None
+                    and (fix.recorded_at - bus.started_at).total_seconds() >= arrival_min_s
+                    and trips.inside_arrival_zone(app, bus)):
+                bus.arriving = True   # one close only; a later fix or request cannot re-trigger
+                arrival_at = min(fix.recorded_at, now)
         if moved:
             writer.queue_trip_progress(bus.trip_id, now, bus.distance_m)
     if moved:
@@ -158,5 +170,15 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
             received_at=bus.received_at, trip_status=bus.status,  # type: ignore[arg-type]
             direction=bus.direction,
         ))
+    if arrival_at is not None and con is not None:
+        await _close_on_arrival(app, bus, con, arrival_at)
     return result
 
+
+async def _close_on_arrival(app: Any, bus: BusLive, con: asyncpg.Connection, at: datetime) -> None:
+    """End the trip at the geofence (closed_by 'arrival'); a lost race with the driver's button is fine."""
+    try:
+        await trips.end_trip(app, con, bus.trip_id, closed_by="arrival", ended_at=at, actor_id=None, arrived_at=at)
+    except Exception:
+        bus.arriving = False   # not closed: the next accepted fix inside the zone tries again
+        log.exception("arrival close failed for trip %s", bus.trip_id)

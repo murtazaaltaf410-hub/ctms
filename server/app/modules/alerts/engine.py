@@ -44,6 +44,7 @@ log = logging.getLogger("ctms.alerts")
 
 ALERT_TAG = "nearby_alert"
 PICKUP_TAG = "pickup_nearby"
+JOURNEY_TAG = "journey_started"
 DISTANCE_STEP_M = 50
 ENDED_TRIPS_KEPT = 1000
 

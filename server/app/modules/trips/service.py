@@ -24,14 +24,16 @@ from app.live.hub import broadcast
 from app.live.messages import bus_status, trip_ended, trip_started
 from app.live.state import BusLive, RouteGeom, get_live
 from app.live.writer import get_writer
+from app.modules.alerts.engine import JOURNEY_TAG
 from app.modules.trips.schedule import Slot, nearest_slot, slot_occurrence
 from app.modules.trips.schemas import TripOut, TripSummary
+from app.push import PushJob, get_push
 
 log = logging.getLogger("ctms.trips")
 
 TRIP_SELECT = """
 select t.id, t.bus_id, t.driver_id, t.route_id, t.schedule_id, t.type, t.direction, t.status, t.note,
-       t.started_at, t.ended_at, t.closed_by, t.distance_m, t.last_fix_at,
+       t.started_at, t.ended_at, t.closed_by, t.moved_at, t.arrived_at, t.distance_m, t.last_fix_at,
        b.label as bus_label, r.name as route_name, r.polyline, r.cum_dist_m,
        s.departure_time
   from public.trips t
@@ -60,6 +62,7 @@ def trip_out(app: Any, row: asyncpg.Record) -> TripOut:
         type=row["type"], direction=row["direction"], scheduled_departure=_scheduled_departure(app, row),
         status=row["status"],
         note=row["note"], started_at=row["started_at"], ended_at=row["ended_at"], closed_by=row["closed_by"],
+        moved_at=row["moved_at"], arrived_at=row["arrived_at"],
         distance_m=round(row["distance_m"], 1), last_fix_at=row["last_fix_at"],
     )
 
@@ -77,7 +80,7 @@ def bus_from_row(app: Any, row: asyncpg.Record) -> BusLive:
         bus_label=row["bus_label"], route=route,
         started_at=row["started_at"], trip_type=row["type"], direction=row["direction"],
         scheduled_departure=_scheduled_departure(app, row), status=row["status"], note=row["note"],
-        distance_m=float(row["distance_m"] or 0.0),
+        distance_m=float(row["distance_m"] or 0.0), moved_at=row["moved_at"],
     )
 
 
@@ -92,14 +95,17 @@ async def load_bus(app: Any, con: asyncpg.Connection, row: asyncpg.Record) -> Bu
     was edited mid-trip continues on the edited geometry.
     """
     bus = bus_from_row(app, row)
-    if not bus.route.usable:
-        return bus
     tie = float(app.state.settings_store.get_cached("snap_tie_tolerance_m"))
     order = "desc" if row["direction"] == "from_campus" else "asc"
     stops = await con.fetch(
         f"select id, lat, lng from public.stops where route_id = $1 and active order by sequence {order}",  # noqa: S608
         row["route_id"],
     )
+    if row["direction"] == "from_campus" and stops:
+        # Travel order is descending sequence, so its last stop has the LOWEST sequence.
+        bus.last_stop = (stops[-1]["lat"], stops[-1]["lng"])
+    if not bus.route.usable:
+        return bus
     index = 0
     for stop in stops:
         snap = snap_forward(bus.route.points, bus.route.cum, stop["lat"], stop["lng"], index, tie)
@@ -179,7 +185,56 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
     get_live(app).add(bus_live)
     await broadcast(app, trip_started(bus_live.bus_id, trip_id), route_id)
     await emit_trip(app, TripEvent(trip_id, bus_live.bus_id, route_id, "started"))
+    await notify_journey_started(app, con, row)
     return trip_out(app, row)
+
+
+async def notify_journey_started(app: Any, con: asyncpg.Connection, row: asyncpg.Record) -> None:
+    """Push "Bus started its journey" to the approved students assigned to this bus.
+
+    Zero recipients is a no-op; any failure is logged and never fails the trip start."""
+    try:
+        rows = await con.fetch(
+            """select sp.user_id from public.student_profiles sp
+               join public.users u on u.id = sp.user_id and u.active
+               where sp.status = 'approved' and sp.bus_id = $1""",
+            row["bus_id"],
+        )
+        if not rows:
+            return
+        where = "to campus" if row["direction"] == "to_campus" else "from campus"
+        get_push(app).submit(PushJob(
+            title="Bus started its journey",
+            body=f"{row['bus_label']} ({row['route_name']}) has started its journey {where}",
+            tag=JOURNEY_TAG, user_ids=tuple(r["user_id"] for r in rows),
+            data={"type": JOURNEY_TAG, "trip_id": str(row["id"]), "bus_id": str(row["bus_id"]),
+                  "direction": row["direction"]},
+        ))
+    except Exception:
+        log.exception("journey push for trip %s failed", row["id"])
+
+
+def arrival_target(app: Any, bus: BusLive) -> tuple[float, float, float] | None:
+    """(lat, lng, radius_m) that ends this trip, or None when the geofence is off.
+
+    to_campus: the campus point (off while campus_lat/lng are unset). from_campus: the
+    travel-order last stop (lowest sequence), cached on the BusLive at load time."""
+    store = app.state.settings_store
+    if bus.direction == "from_campus":
+        if bus.last_stop is None:
+            return None
+        return bus.last_stop[0], bus.last_stop[1], float(store.get_cached("last_stop_radius_m"))
+    lat, lng = store.get_cached("campus_lat"), store.get_cached("campus_lng")
+    if lat is None or lng is None:
+        return None
+    return float(lat), float(lng), float(store.get_cached("campus_radius_m"))
+
+
+def inside_arrival_zone(app: Any, bus: BusLive) -> bool:
+    target = arrival_target(app, bus)
+    if target is None or not bus.has_position:
+        return False
+    return haversine_m(bus.lat, bus.lng, target[0], target[1]) <= target[2]  # type: ignore[arg-type]
 
 
 async def set_status(app: FastAPI, con: asyncpg.Connection, row: asyncpg.Record, status: str,
@@ -214,10 +269,17 @@ def summarize(app: Any, row: asyncpg.Record) -> TripSummary:
 
 
 async def end_trip(app: FastAPI, con: asyncpg.Connection, trip_id: UUID, *, closed_by: str,
-                   ended_at: datetime, actor_id: UUID | None) -> TripSummary:
-    """Close a trip (driver or auto-close): flush queued fixes, compute distance, notify."""
+                   ended_at: datetime, actor_id: UUID | None, arrived_at: datetime | None = None) -> TripSummary:
+    """Close a trip (driver, arrival geofence or auto-close): flush queued fixes, compute distance, notify.
+
+    Only the first close wins (`ended_at is null` guard), so a driver button racing the
+    geofence yields one end and one `trip_ended`. A driver close inside the geofence
+    records `arrived_at` as the live fix time; elsewhere it stays null."""
     live = get_live(app)
     bus = live.by_trip(trip_id)
+    if (arrived_at is None and closed_by == "driver" and bus is not None and bus.recorded_at is not None
+            and inside_arrival_zone(app, bus)):
+        arrived_at = bus.recorded_at
     await get_writer(app).flush(app)
     distance = await path_distance_m(con, trip_id)
     if distance is None:
@@ -226,17 +288,18 @@ async def end_trip(app: FastAPI, con: asyncpg.Connection, trip_id: UUID, *, clos
     async with con.transaction():
         closed = await con.fetchval(
             """update public.trips
-                  set ended_at = greatest($2, started_at), closed_by = $3,
+                  set ended_at = greatest($2, started_at), closed_by = $3, arrived_at = $6,
                       distance_m = greatest(distance_m, $4),
                       last_fix_at = case when $5::timestamptz is null then last_fix_at
                                          else greatest(coalesce(last_fix_at, $5), $5) end
                 where id = $1 and ended_at is null
             returning id""",
-            trip_id, ended_at, closed_by, distance, last_fix,
+            trip_id, ended_at, closed_by, distance, last_fix, arrived_at,
         )
         if closed:
             await write_audit(con, actor_id=actor_id, action="trip.end", target_type="trip", target_id=trip_id,
-                              meta={"closed_by": closed_by, "distance_m": round(distance, 1)})
+                              meta={"closed_by": closed_by, "distance_m": round(distance, 1),
+                                    "arrived": arrived_at is not None})
     row = await load_trip(con, trip_id)
     assert row is not None
     live.remove_trip(trip_id)

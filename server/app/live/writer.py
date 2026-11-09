@@ -52,6 +52,7 @@ class Writer:
         self.max_rows = max_rows
         self.rows: deque[LocationRow | RejectedRow] = deque()
         self.progress: dict[UUID, tuple[datetime, float]] = {}   # trip_id -> (last_fix_at, distance_m)
+        self.moved: dict[UUID, datetime] = {}   # trip_id -> first-moved time
         self.dropped = 0
         self.last_error: str | None = None
 
@@ -74,20 +75,25 @@ class Writer:
             distance_m = max(prev[1], distance_m)
         self.progress[trip_id] = (last_fix_at, distance_m)
 
+    def queue_trip_moved(self, trip_id: UUID, moved_at: datetime) -> None:
+        prev = self.moved.get(trip_id)
+        self.moved[trip_id] = moved_at if prev is None else min(prev, moved_at)
+
     def pending_fix_ids(self) -> set[UUID]:
         return {r.fix_id for r in self.rows if isinstance(r, LocationRow)}
 
     @property
     def pending(self) -> int:
-        return len(self.rows) + len(self.progress)
+        return len(self.rows) + len(self.progress) + len(self.moved)
 
     async def flush(self, app: Any) -> int:
         """Write everything queued; returns rows written (0 and re-queued on failure)."""
-        if not self.rows and not self.progress:
+        if not self.rows and not self.progress and not self.moved:
             return 0
-        rows, progress = list(self.rows), dict(self.progress)
+        rows, progress, moved = list(self.rows), dict(self.progress), dict(self.moved)
         self.rows.clear()
         self.progress.clear()
+        self.moved.clear()
         locs = [r for r in rows if isinstance(r, LocationRow)]
         rejs = [r for r in rows if isinstance(r, RejectedRow)]
         try:
@@ -115,6 +121,11 @@ class Writer:
                             where id = $1 and ended_at is null""",
                         [(tid, at, dist) for tid, (at, dist) in progress.items()],
                     )
+                if moved:
+                    await con.executemany(
+                        "update public.trips set moved_at = $2 where id = $1 and moved_at is null",
+                        list(moved.items()),
+                    )
         except (DbUnavailable, *DB_CONNECTION_ERRORS) as exc:
             # Put the batch back in front of anything queued meanwhile (order kept).
             self.rows.extendleft(reversed(rows))
@@ -123,6 +134,8 @@ class Writer:
                 self.dropped += 1
             for tid, (at, dist) in progress.items():
                 self.queue_trip_progress(tid, at, dist)
+            for tid, at in moved.items():
+                self.queue_trip_moved(tid, at)
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.warning("live writer flush failed, %d rows queued: %s", len(self.rows), self.last_error)
             return 0
@@ -133,7 +146,7 @@ class Writer:
             log.exception("live writer dropped a batch of %d rows", len(rows))
             return 0
         self.last_error = None
-        return len(rows) + len(progress)
+        return len(rows) + len(progress) + len(moved)
 
 
 def get_writer(app: Any) -> Writer:
