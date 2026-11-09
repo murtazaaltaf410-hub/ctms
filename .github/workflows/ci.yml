@@ -58,7 +58,10 @@ jobs:
           psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 \
             -f supabase/migrations/0004_firebase_email.sql \
             -f supabase/migrations/0005_trip_direction.sql \
-            -f supabase/migrations/0006_pickups.sql
+            -f supabase/migrations/0006_pickups.sql \
+            -f supabase/migrations/0007_driver_accounts.sql \
+            -f supabase/migrations/0008_students.sql \
+            -f supabase/migrations/0009_journey.sql
 
       - uses: astral-sh/setup-uv@v6
         with:

@@ -6,6 +6,10 @@ Short ADRs. Each one names the docs it was decided against. Later phases follow 
 
 ## ADR-1 — Driver phone OTP: Firebase Phone Auth on device; server verifies the Firebase ID token behind the spec endpoints
 
+> **Superseded by ADR-10** (2026-11-09): drivers now sign in with an admin-issued password, not a phone OTP.
+
+> **Superseded by ADR-10** (2026-11-09): drivers now sign in with an admin-issued password, not a phone OTP.
+
 **Status:** accepted (2026-11-08)
 
 **Context.**
@@ -181,6 +185,10 @@ These come from the edge-case catalogue and must also be config, not literals:
 
 ## ADR-7 — User override of ADR-1: pluggable OTP provider, dev mode first (2026-11-08)
 
+> **Superseded by ADR-10** (2026-11-09): the OTP providers and `/auth/phone/*` are being removed.
+
+> **Superseded by ADR-10** (2026-11-09): the OTP providers and `/auth/phone/*` are being removed.
+
 The user chose **"dev mode for now, decide later"**. Keep the spec endpoints `POST /auth/phone/request` (always 202, 3 sends per phone per 10 min plus a per-IP limit) and `POST /auth/phone/verify` (`OTP_INVALID` / `OTP_EXPIRED`). Put an `OtpProvider` interface behind them:
 - `ConsoleOtpProvider` is the default when `APP_ENV=dev` or `OTP_PROVIDER=console`. The server generates a 6-digit code, stores only its hash with a 5-minute expiry and an attempt counter, and logs the code to the server console. Never return it in the response.
 - `FirebaseOtpProvider` follows ADR-1 (the device runs Firebase Phone Auth and `otp` carries the Firebase ID token). It is implemented but selected only with `OTP_PROVIDER=firebase`.
@@ -206,3 +214,33 @@ Added after the Render pilot started. These go beyond the V1 PRD; no PRD non-goa
 - **Student pickup pins and driver alerts** (migration 0006): students place a temporary pickup pin per leg (`POST /pickups`, one waiting pin per student, within `pickup_max_route_distance_m` of the route line, expiring after `pickup_request_ttl_s`). It is not an admin stop and never changes a route. The driver reads `GET /trips/{id}/pickups` (location, label and distance only, no student identity).
 - **Alerts from pins** reuse the alert engine's per-fix hook: when the bus is within `driver_alert_radius_m` of a waiting pin on its route and leg and getting closer, the driver gets a `pickup_nearby` push and the student a nearby-bus push (skipped if their GPS alert already fired for the trip), once per (pin, trip) via `pickup_alert_log`. A pin is marked `picked_up` when the bus passes within `pickup_pass_m`. Pins are not expired when a trip ends (another bus may still come); they expire by TTL.
 - All new thresholds are config fields (env-overridable, ADR-6): `pickup_request_ttl_s`, `pickup_max_route_distance_m`, `pickup_pass_m`, `driver_alert_radius_m`, `pickup_retention_s`.
+
+
+## ADR-10 — Admin-managed driver accounts, student registration with seats, Start Journey and arrival (V1.2 extension, 2026-11-09)
+
+**Status:** accepted by the user (2026-11-09). **Supersedes ADR-1 and ADR-7.** Overrides PRD D1/A1 (driver phone OTP, drivers identified by phone), the PRD non-goal "seat booking or attendance" (prd.txt:28-33), the PRD student role "any university student" (prd.txt:45-47), U1/TC1 (any Google account may sign in) and "students see every active bus" (prd.txt:20-21).
+
+- **Driver accounts.** Only an admin creates a driver. The admin records name, a unique lowercase `userid`, optional email and phone, and profile details (employee id, licence number and expiry, address, emergency contact, notes in `driver_profiles`). The server generates a temporary password and returns it once; `must_change_password` forces a change at first login. A driver signs in with `POST /auth/login {identifier, password}`; the identifier is a userid, email or phone.
+- **Password storage.** Postgres `users.password_hash`, hashed with the Python standard library `hashlib.scrypt` (random per-user salt) and compared with `hmac.compare_digest`. No new dependency. No OTP, no SMS, no Firebase for drivers. The hash is never returned or logged. Failure is always the same `INVALID_CREDENTIALS` 401 for an unknown identifier and a wrong password. Per-IP rate limit (`rate_login_per_ip`) and an account lock after `login_max_failures` failures for `login_lock_s` seconds (`users.failed_logins`, `users.locked_until`). One active session per driver stays (`SESSION_REPLACED`). `otp/firebase.py` stays because `/auth/firebase` and FCM use it.
+- **Student registration.** A student must register before using the app: full name, phone, department, route, requested bus label and whether they are registered with campus transport. The registration is `pending` until an admin approves it and assigns a bus (`approved`) or rejects it with a note. Approval runs in one transaction that locks the bus row, requires the bus to run the student's route and requires a free seat, else 409 `NO_SEAT`. Until approved, live buses, ETAs, pickups and alerts are refused (403 `REGISTRATION_REQUIRED`); an approved student sees only buses on their route.
+- **Seats.** `buses.capacity` (null = not set). The admin sees counts per status, route and bus (capacity, assigned, seats left) and the roster. **No attendance tracking is built or stored**: the numbers are registrations and assignments, not who boarded. A driver sees a roster of the approved students on their bus with name and department only, never a phone number.
+- **Start Journey push.** The driver's Start Trip becomes **Start Journey**. On trip start the server pushes "Bus started its journey" (tag `journey_started`) to the approved students assigned to that bus.
+- **Arrival.** A trip records `moved_at` (first speed above `moved_speed_mps`), `arrived_at` and `closed_by = 'arrival'`. Both directions end **automatically by geofence and by the driver button**. A `to_campus` trip ends inside `campus_radius_m` of the campus point (`campus_lat`, `campus_lng`). A `from_campus` trip ends inside `last_stop_radius_m` of the route's last stop. Neither closes before `arrival_min_trip_s` has passed and the bus has moved. If the campus point is unset, the campus geofence is off and only the button ends a `to_campus` trip. The 15-minute silence auto-close is unchanged.
+- **DB:** migrations `0007_driver_accounts.sql`, `0008_students.sql`, `0009_journey.sql`. The `users_login_identifier` check becomes "a driver has at least one of phone, email or userid; everyone else has an email". `trips_closed_by_check` gains `arrival`.
+- **Config (ADR-6):** `campus_lat`, `campus_lng` (None = not set), `campus_radius_m` 150, `last_stop_radius_m` 150, `moved_speed_mps` 1.5, `arrival_min_trip_s` 120, `login_max_failures` 5, `login_lock_s` 900, `rate_login_per_ip` 20 per `rate_login_per_ip_window_s` 600.
+- **Existing data.** Drivers keep their phone; an admin sets each one's userid and password. Existing student accounts, including the owner's, register once after this ships. `phone_otp_requests` is not dropped yet.
+
+
+## ADR-10 — Admin-managed driver accounts, student registration with seats, Start Journey and arrival (V1.2 extension, 2026-11-09)
+
+**Status:** accepted by the user (2026-11-09). **Supersedes ADR-1 and ADR-7.** Overrides PRD D1/A1 (driver phone OTP, drivers identified by phone), the PRD non-goal "seat booking or attendance" (prd.txt:28-33), the PRD student role "any university student" (prd.txt:45-47), U1/TC1 (any Google account may sign in) and "students see every active bus" (prd.txt:20-21).
+
+- **Driver accounts.** Only an admin creates a driver. The admin records name, a unique lowercase `userid`, optional email and phone, and profile details (employee id, licence number and expiry, address, emergency contact, notes in `driver_profiles`). The server generates a temporary password and returns it once; `must_change_password` forces a change at first login. A driver signs in with `POST /auth/login {identifier, password}`; the identifier is a userid, email or phone.
+- **Password storage.** Postgres `users.password_hash`, hashed with the Python standard library `hashlib.scrypt` (random per-user salt) and compared with `hmac.compare_digest`. No new dependency. No OTP, no SMS, no Firebase for drivers. The hash is never returned or logged. Failure is always the same `INVALID_CREDENTIALS` 401 for an unknown identifier and a wrong password. Per-IP rate limit (`rate_login_per_ip`) and an account lock after `login_max_failures` failures for `login_lock_s` seconds (`users.failed_logins`, `users.locked_until`). One active session per driver stays (`SESSION_REPLACED`). `otp/firebase.py` stays because `/auth/firebase` and FCM use it.
+- **Student registration.** A student must register before using the app: full name, phone, department, route, requested bus label and whether they are registered with campus transport. The registration is `pending` until an admin approves it and assigns a bus (`approved`) or rejects it with a note. Approval runs in one transaction that locks the bus row, requires the bus to run the student's route and requires a free seat, else 409 `NO_SEAT`. Until approved, live buses, ETAs, pickups and alerts are refused (403 `REGISTRATION_REQUIRED`); an approved student sees only buses on their route.
+- **Seats.** `buses.capacity` (null = not set). The admin sees counts per status, route and bus (capacity, assigned, seats left) and the roster. **No attendance tracking is built or stored**: the numbers are registrations and assignments, not who boarded. A driver sees a roster of the approved students on their bus with name and department only, never a phone number.
+- **Start Journey push.** The driver's Start Trip becomes **Start Journey**. On trip start the server pushes "Bus started its journey" (tag `journey_started`) to the approved students assigned to that bus.
+- **Arrival.** A trip records `moved_at` (first speed above `moved_speed_mps`), `arrived_at` and `closed_by = 'arrival'`. Both directions end **automatically by geofence and by the driver button**. A `to_campus` trip ends inside `campus_radius_m` of the campus point (`campus_lat`, `campus_lng`). A `from_campus` trip ends inside `last_stop_radius_m` of the route's last stop. Neither closes before `arrival_min_trip_s` has passed and the bus has moved. If the campus point is unset, the campus geofence is off and only the button ends a `to_campus` trip. The 15-minute silence auto-close is unchanged.
+- **DB:** migrations `0007_driver_accounts.sql`, `0008_students.sql`, `0009_journey.sql`. The `users_login_identifier` check becomes "a driver has at least one of phone, email or userid; everyone else has an email". `trips_closed_by_check` gains `arrival`.
+- **Config (ADR-6):** `campus_lat`, `campus_lng` (None = not set), `campus_radius_m` 150, `last_stop_radius_m` 150, `moved_speed_mps` 1.5, `arrival_min_trip_s` 120, `login_max_failures` 5, `login_lock_s` 900, `rate_login_per_ip` 20 per `rate_login_per_ip_window_s` 600.
+- **Existing data.** Drivers keep their phone; an admin sets each one's userid and password. Existing student accounts, including the owner's, register once after this ships. `phone_otp_requests` is not dropped yet.

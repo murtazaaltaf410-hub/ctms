@@ -14,3 +14,6 @@ set ctms.seed_demo = 'off';
 \i /ctms/migrations/0004_firebase_email.sql
 \i /ctms/migrations/0005_trip_direction.sql
 \i /ctms/migrations/0006_pickups.sql
+\i /ctms/migrations/0007_driver_accounts.sql
+\i /ctms/migrations/0008_students.sql
+\i /ctms/migrations/0009_journey.sql

@@ -260,3 +260,15 @@ Error codes (api p6–7), owner P2 (`errors.py`): VALIDATION_ERROR 400, OTP_INVA
 | X1 | A trip has a direction (to_campus / from_campus); the driver chooses it at start; schedule slots carry a direction; ETAs and live state follow the reversed route for the return leg | server: `trips/service.py`, `schedules/router.py`; app: driver start screen | server done (`test_direction.py`), app in progress |
 | X2 | Students place a temporary pickup pin for a leg (one waiting request per student) | server + app | server done (`test_pickups_api.py`, migration 0006), app in progress |
 | X3 | The driver gets a push and a map marker when the bus nears a waiting student; the student gets a push when the bus nears their pin | server done (`test_pickup_alerts.py`), app in progress |
+
+
+## V1.2 extensions (ADR-10)
+
+| ID | Requirement | Owner | Status |
+|---|---|---|---|
+| X4 | Admin-managed driver accounts: userid / email / phone plus an admin-issued password (scrypt in Postgres), driver profile, forced first-login change, lockout, no OTP | server: `auth/`, `admin/drivers.py`; app: driver sign-in, admin driver form; migration 0007 | migration done (0007), server planned (plan phase 2), app planned (phase 3) |
+| X5 | Student registration (name, phone, department, route, bus) with admin approval or rejection and a rejection note; unregistered students are gated | server + app; migration 0008 | migration done (0008), server planned (phase 4), app planned (phase 5) |
+| X6 | Bus seat capacity; approval assigns a bus on the student's route with a free seat (409 `NO_SEAT`, race-safe); no attendance tracking | server: students/admin; migration 0008 | migration done (0008), server planned (phase 4) |
+| X7 | Admin student view: list with filters, totals by status, per-route and per-bus capacity / assigned / seats left, driver roster of name and department only | server + app | planned (phases 4-5) |
+| X8 | Start Journey: the trip start pushes "Bus started its journey" to the approved students of that bus | server: trip listener; app: driver start screen | planned (phase 6) |
+| X9 | Arrival: `to_campus` trips end by geofence at the campus and `from_campus` trips at the route's last stop, plus the driver's button for both; `moved_at`, `arrived_at`, `closed_by = arrival` | server: tracking; migration 0009 | migration done (0009), server planned (phase 6) |

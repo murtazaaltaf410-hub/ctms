@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     rate_general_per_ip_window_s: int = 60
     rate_otp_request_per_ip: int = 20
     rate_otp_request_per_ip_window_s: int = 600
+    rate_login_per_ip: int = 20
+    rate_login_per_ip_window_s: int = 600
     rate_locations_per_user: int = 60
     rate_locations_per_user_window_s: int = 60
 
@@ -102,6 +104,16 @@ class Settings(BaseSettings):
     student_location_ttl_s: int = 300
     otp_request_retention_s: int = 86400
     timezone: str = "Asia/Kolkata"
+
+    # --- Journey, arrival and password login (ADR-10, migration 0009) ---
+    campus_lat: float | None = None          # None = campus point not set; geofence disabled
+    campus_lng: float | None = None
+    campus_radius_m: float = 150             # to_campus trip ends inside this radius of the campus
+    last_stop_radius_m: float = 150          # from_campus trip ends inside this radius of the last stop
+    moved_speed_mps: float = 1.5             # speed above which the bus counts as having moved
+    arrival_min_trip_s: float = 120          # no arrival close sooner than this after the trip started
+    login_max_failures: int = 5              # consecutive wrong passwords before the account locks
+    login_lock_s: int = 900
 
     # --- Phase 3: trips, tracking, live state, ETA (not in the settings seed) ---
     # A trip is "scheduled" if it starts within this many seconds of a timetable slot.

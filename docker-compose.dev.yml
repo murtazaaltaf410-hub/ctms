@@ -31,6 +31,9 @@ services:
       - ./supabase/migrations/0004_firebase_email.sql:/docker-entrypoint-initdb.d/04_firebase_email.sql:ro
       - ./supabase/migrations/0005_trip_direction.sql:/docker-entrypoint-initdb.d/05_trip_direction.sql:ro
       - ./supabase/migrations/0006_pickups.sql:/docker-entrypoint-initdb.d/06_pickups.sql:ro
+      - ./supabase/migrations/0007_driver_accounts.sql:/docker-entrypoint-initdb.d/07_driver_accounts.sql:ro
+      - ./supabase/migrations/0008_students.sql:/docker-entrypoint-initdb.d/08_students.sql:ro
+      - ./supabase/migrations/0009_journey.sql:/docker-entrypoint-initdb.d/09_journey.sql:ro
       # Creates ctms_test and applies the same files (reads /ctms/migrations).
       - ./supabase/docker/04_test_db.sql:/docker-entrypoint-initdb.d/04_test_db.sql:ro
       - ./supabase/migrations:/ctms/migrations:ro

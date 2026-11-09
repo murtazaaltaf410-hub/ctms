@@ -144,3 +144,15 @@ The acceptance tests drive the real API through `httpx.ASGITransport` against th
 | ID | Test | Status |
 |---|---|---|
 | X1 | `test_direction.py`: default direction, unknown direction → 400, reversed-route ETA for `from_campus`, `to_campus` unchanged, schedule slot matches only its own direction, admin schedule direction | pass |
+
+
+## V1.2 extensions (ADR-10), planned
+
+| ID | Test | Status |
+|---|---|---|
+| X4 | password login by userid / email / phone; same `INVALID_CREDENTIALS` for unknown and wrong; lockout after `login_max_failures`; single driver session (`SESSION_REPLACED`); temporary password shown once and `must_change_password` cleared on change; reset revokes sessions; hash never in any response or log | planned |
+| X5 | registration validation; one profile per student; approve and reject with note; unregistered student gets 403 `REGISTRATION_REQUIRED` from live buses, ETA, pickups and alert settings; cascade on account deletion | planned |
+| X6 | two concurrent approvals for the last seat give one 409 `NO_SEAT`; bus on another route refused; capacity null and 0 handled | planned |
+| X7 | admin list filters and cursor; summary counts per status, route and bus; driver roster shows name and department only | planned |
+| X8 | start push goes only to approved students of the trip's bus; zero recipients tolerated | planned |
+| X9 | `moved_at` set once; `to_campus` geofence end; `from_campus` last-stop end; button end; no early end at the start point or before `arrival_min_trip_s`; geofence off while campus point unset; silence auto-close unaffected | planned |

@@ -176,7 +176,7 @@ context7 has no index for the Routes API. The searches tried were "Google Maps R
 - Error codes to map: `invalid-verification-code` → OTP_INVALID; `session-expired` → OTP_EXPIRED; `too-many-requests` → RATE_LIMITED. **UNCONFIRMED** code strings: confirm in P7.
 
 ### firebase_auth (email/password, additive auth option)
-- `FirebaseAuth.instance.createUserWithEmailAndPassword(email:, password:)` creates the Firebase account; call `user.sendEmailVerification()` and then sign out. Passwords never reach CTMS FastAPI. Source: firebase.google.com/docs/auth/flutter/password-auth
+- `FirebaseAuth.instance.createUserWithEmailAndPassword(email:, password:)` creates the Firebase account; call `user.sendEmailVerification()` and then sign out. Passwords never reach CTMS FastAPI on this Firebase email path (students and admins); driver passwords are the exception (ADR-10, hashlib.scrypt section below). Source: firebase.google.com/docs/auth/flutter/password-auth
 - `FirebaseAuth.instance.signInWithEmailAndPassword(email:, password:)`, then `user.reload()`, `currentUser.emailVerified`, and `user.getIdToken()` produce the verified Firebase ID token for `POST /auth/firebase`. Source: firebase.google.com/docs/auth/flutter/password-auth and firebase.google.com/docs/auth/admin/verify-id-tokens
 
 ### google_maps_flutter — ctx7: `/websites/pub_dev_google_maps_flutter`
@@ -263,3 +263,9 @@ P7 notes for P8:
 - google_sign_in v6 calls. `DioError`. `StateNotifier`.
 - A 422 for validation (the spec says 400 `VALIDATION_ERROR`).
 - Hard-coded thresholds (see plan "Thresholds as config").
+
+
+## Driver password hashing (ADR-10) — Python standard library
+- `hashlib.scrypt(password: bytes, *, salt: bytes, n: int, r: int, p: int, maxmem=0, dklen=64) -> bytes`. Password-based key derivation. Use a random per-user salt (`secrets.token_bytes(16)`); store parameters, salt and digest together in `users.password_hash`. Needs OpenSSL 1.1+. Source: https://docs.python.org/3/library/hashlib.html (hashlib.scrypt).
+- `hmac.compare_digest(a, b) -> bool`. Constant-time comparison of the stored and recomputed digests. Source: https://docs.python.org/3/library/hmac.html (hmac.compare_digest).
+- Passwords and hashes are never logged or returned by any endpoint.
