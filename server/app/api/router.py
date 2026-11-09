@@ -38,6 +38,11 @@ from app.modules.admin.router import router as admin_router  # noqa: E402
 
 api_router.include_router(admin_router)
 
+# --- V1.1 (ADR-9): student pickup pins, driver waiting list --------------------------
+from app.modules.pickups.router import router as pickups_router  # noqa: E402
+
+api_router.include_router(pickups_router)
+
 # --- Phase 9: public app config (min supported app version) -----------------------
 from app.modules.appconfig.router import router as appconfig_router  # noqa: E402
 

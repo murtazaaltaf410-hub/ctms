@@ -129,6 +129,14 @@ class Settings(BaseSettings):
     alert_track_radius_factor: float = 2.0  # distances are tracked out to factor x alert_radius_m
     alert_rider_min_updates: int = 2     # A1: consecutive fixes within alert_rider_suppress_m = riding
 
+    # --- V1.1 (ADR-9): student pickup pins and driver alerts -----------------------
+    pickup_request_ttl_s: float = 3600       # a waiting pin expires after this long
+    pickup_max_route_distance_m: float = 300  # a pin must be this close to the route line
+    pickup_pass_m: float = 60                # the bus within this distance of a pin = picked up
+    driver_alert_radius_m: float = 500       # alert the driver/student when the bus is this near a pin
+    pickup_retention_s: int = 86400          # finished requests are deleted after this long
+    pickup_label_max_chars: int = 60
+
     # --- Phase 9: GET /api/v1/config (runbook: minimum supported app version) ------
     # Also overridable per environment with a `min_app_version` row in the settings table.
     min_app_version: str = "1.0.0"

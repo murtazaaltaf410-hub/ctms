@@ -43,6 +43,7 @@ from app.push import PushJob, background_conn, get_push
 log = logging.getLogger("ctms.alerts")
 
 ALERT_TAG = "nearby_alert"
+PICKUP_TAG = "pickup_nearby"
 DISTANCE_STEP_M = 50
 ENDED_TRIPS_KEPT = 1000
 
@@ -58,6 +59,32 @@ where sl.lat between $1 and $2 and sl.lng between $3 and $4
   and sl.recorded_at > $5 and sl.accuracy_m < $6
   and exists(select 1 from public.trips t where t.id = $7 and t.ended_at is null and t.status <> 'breakdown')
 """
+
+
+PICKUPS_SQL = """
+select p.id, p.student_id, p.lat, p.lng, p.label,
+       exists(select 1 from public.pickup_alert_log l where l.request_id = p.id and l.trip_id = $7) as alerted,
+       exists(select 1 from public.alert_log a where a.student_id = p.student_id and a.trip_id = $7) as student_alerted,
+       (select t.driver_id from public.trips t where t.id = $7 and t.ended_at is null) as driver_id
+from public.pickup_requests p
+where p.status = 'waiting' and p.route_id = $5 and p.direction = $6 and p.expires_at > $8
+  and p.lat between $1 and $2 and p.lng between $3 and $4
+"""
+
+
+@dataclass(frozen=True)
+class PickupAlert:
+    request_id: UUID
+    student_id: UUID
+    driver_id: UUID | None
+    label: str | None
+    distance_m: float
+    student_alerted: bool
+
+
+def pickup_driver_text(distance_m: float, label: str | None) -> str:
+    rounded = max(DISTANCE_STEP_M, round(distance_m / DISTANCE_STEP_M) * DISTANCE_STEP_M)
+    return f"Student waiting about {rounded} m ahead" + (f": {label}" if label else "")
 
 
 def alert_text(bus_label: str, route_name: str, distance_m: float) -> str:
@@ -77,6 +104,7 @@ class _Recent:
 @dataclass
 class AlertState:
     prev_distance: dict[Key, float] = field(default_factory=dict)
+    pickup_prev: dict[Key, float] = field(default_factory=dict)  # (request_id, trip_id) -> distance
     near_count: dict[Key, int] = field(default_factory=dict)
     riders: set[Key] = field(default_factory=set)
     recent: dict[UUID, list[_Recent]] = field(default_factory=dict)
@@ -90,6 +118,8 @@ class AlertState:
 
     def forget_trip(self, trip_id: UUID) -> None:
         self.forget_keys([k for k in self.prev_distance if k[1] == trip_id])
+        for key in [k for k in self.pickup_prev if k[1] == trip_id]:
+            del self.pickup_prev[key]
         self.ended_trips[trip_id] = None
         while len(self.ended_trips) > ENDED_TRIPS_KEPT:
             self.ended_trips.popitem(last=False)
@@ -153,10 +183,63 @@ class AlertEngine:
                     student_id, ev.trip_id, now)
                 if won is not None:
                     alerted.append((student_id, distance))
+            pickup_alerts = await self._scan_pickups(app, con, ev, now)
         self.state.forget_keys([k for k in self.state.keys_for(trip_id=ev.trip_id) if k not in seen])
         for student_id, distance in alerted:
             self._push(app, ev, student_id, distance, now, float(store.get_cached("alert_combine_window_s")))
+        for pickup in pickup_alerts:
+            self._push_pickup(app, ev, pickup)
         return [s for s, _ in alerted]
+
+    async def _scan_pickups(self, app: FastAPI, con, ev: FixEvent, now: datetime) -> list[PickupAlert]:
+        """ADR-9: waiting pickup pins on this trip's route and leg. Alert once per (pin, trip) when the bus
+        is within `driver_alert_radius_m` and getting closer; mark the pin picked up once the bus is
+        within `pickup_pass_m`."""
+        store = app.state.settings_store
+        radius = float(store.get_cached("driver_alert_radius_m"))
+        pass_m = float(store.get_cached("pickup_pass_m"))
+        box = bounding_box(ev.lat, ev.lng, max(radius, pass_m) * app.state.config.alert_track_radius_factor)
+        rows = await con.fetch(PICKUPS_SQL, *box, ev.route_id, ev.direction, ev.trip_id, now)
+        seen: set[Key] = set()
+        alerts: list[PickupAlert] = []
+        for row in rows:
+            key = (row["id"], ev.trip_id)
+            seen.add(key)
+            distance = haversine_m(ev.lat, ev.lng, row["lat"], row["lng"])
+            prev = self.state.pickup_prev.get(key)
+            self.state.pickup_prev[key] = distance
+            if distance <= pass_m:
+                await con.execute(
+                    "update public.pickup_requests set status = 'picked_up', trip_id = $2 "
+                    "where id = $1 and status = 'waiting'", row["id"], ev.trip_id)
+                continue
+            if row["alerted"] or prev is None or distance >= radius or distance >= prev:
+                continue
+            won = await con.fetchval(
+                """insert into public.pickup_alert_log (request_id, trip_id, sent_at) values ($1, $2, $3)
+                   on conflict (request_id, trip_id) do nothing returning request_id""",
+                row["id"], ev.trip_id, now)
+            if won is not None:
+                alerts.append(PickupAlert(row["id"], row["student_id"], row["driver_id"], row["label"],
+                                          distance, bool(row["student_alerted"])))
+        for key in [k for k in self.state.pickup_prev if k[1] == ev.trip_id and k not in seen]:
+            del self.state.pickup_prev[key]
+        return alerts
+
+    def _push_pickup(self, app: FastAPI, ev: FixEvent, pickup: PickupAlert) -> None:
+        push = get_push(app)
+        if pickup.driver_id is not None:
+            push.submit(PushJob(
+                title="Student waiting", body=pickup_driver_text(pickup.distance_m, pickup.label),
+                tag=PICKUP_TAG, user_ids=(pickup.driver_id,),
+                data={"type": PICKUP_TAG, "trip_id": str(ev.trip_id), "request_id": str(pickup.request_id)},
+            ))
+        if not pickup.student_alerted:   # the nearby-bus alert already told them for this trip
+            push.submit(PushJob(
+                title="Bus nearby", body=alert_text(ev.bus_label, ev.route_name, pickup.distance_m),
+                tag=ALERT_TAG, user_ids=(pickup.student_id,),
+                data={"type": ALERT_TAG, "trip_id": str(ev.trip_id), "bus_id": str(ev.bus_id), "bus_count": "1"},
+            ))
 
     def _is_rider(self, key: Key, distance: float, rider_m: float, radius: float, min_updates: int) -> bool:
         """A1: within rider_m on `min_updates` consecutive fixes = riding, until beyond the radius."""

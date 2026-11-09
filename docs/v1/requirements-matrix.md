@@ -258,5 +258,5 @@ Error codes (api p6–7), owner P2 (`errors.py`): VALIDATION_ERROR 400, OTP_INVA
 | ID | Requirement | Owner | Status |
 |---|---|---|---|
 | X1 | A trip has a direction (to_campus / from_campus); the driver chooses it at start; schedule slots carry a direction; ETAs and live state follow the reversed route for the return leg | server: `trips/service.py`, `schedules/router.py`; app: driver start screen | server done (`test_direction.py`), app in progress |
-| X2 | Students place a temporary pickup pin for a leg (one waiting request per student) | server + app | planned (migration 0006) |
-| X3 | The driver gets a push and a map marker when the bus nears a waiting student; the student gets a push when the bus nears their pin | server alert engine + app | planned |
+| X2 | Students place a temporary pickup pin for a leg (one waiting request per student) | server + app | server done (`test_pickups_api.py`, migration 0006), app in progress |
+| X3 | The driver gets a push and a map marker when the bus nears a waiting student; the student gets a push when the bus nears their pin | server done (`test_pickup_alerts.py`), app in progress |

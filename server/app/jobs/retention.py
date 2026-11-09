@@ -21,6 +21,8 @@ PURGES = (
     ("student_locations", "delete from public.student_locations where recorded_at < $1", "student"),
     ("sessions", "delete from public.sessions where expires_at < $1", "now"),
     ("phone_otp_requests", "delete from public.phone_otp_requests where requested_at < $1", "otp"),
+    # ADR-9: finished pickup requests (picked up / cancelled / expired) are not kept.
+    ("pickup_requests", "delete from public.pickup_requests where status <> 'waiting' and updated_at < $1", "pickup"),
 )
 
 
@@ -31,10 +33,14 @@ async def retention_tick(app: Any) -> dict[str, int]:
         "history": now - timedelta(days=int(store.get_cached("location_retention_days"))),
         "student": now - timedelta(seconds=int(store.get_cached("student_location_ttl_s"))),
         "otp": now - timedelta(seconds=int(store.get_cached("otp_request_retention_s"))),
+        "pickup": now - timedelta(seconds=int(store.get_cached("pickup_retention_s"))),
         "now": now,
     }
     counts: dict[str, int] = {}
     async with live_conn(app) as con:
+        # A waiting pin past its expiry is no longer shown to drivers; record that.
+        await con.execute(
+            "update public.pickup_requests set status = 'expired' where status = 'waiting' and expires_at < $1", now)
         for name, sql, cutoff in PURGES:
             status = await con.execute(sql, cutoffs[cutoff])   # "DELETE <n>"
             counts[name] = int(status.rsplit(" ", 1)[-1])
