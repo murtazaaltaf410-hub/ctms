@@ -1,6 +1,6 @@
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 
-Nov 4, 2026 · 
+Nov 4, 2026 ï¿½
 @Waris
 All V1 endpoints are JSON over HTTPS under /api/v1 , authenticated with a bearer
 token, and follow the TRD; FastAPI will also serve the generated OpenAPI page at /docs
@@ -23,7 +23,7 @@ repeats are ignored
 Errors HTTP status + body { "error": { "code":
 "TRIP_ALREADY_ACTIVE", "message": "..." } }
 Rate limits 429 with Retry-After seconds
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 1 of 7
 Auth and account endpoints
 A driver signing in on a second device invalidates the first device's session
@@ -61,7 +61,7 @@ location and alert log
 Method and path Who Request Response and notes
 GET /trips/active Driver none The driver's active trip or
 null
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 2 of 7
 A location batch looks like this:
 {
@@ -112,7 +112,7 @@ trip)
 none Trip summary with
 distance_m , started_at ,
 ended_at
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 3 of 7
 Student, route and announcement endpoints
 When no bus is active on a route, GET /stops/{id}/eta returns an empty list with
@@ -156,7 +156,7 @@ GET
 /announcements
 Any ?cursor= Newest first; urgent flag
 included
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 4 of 7
 Method and path Request Notes
 GET/POST /admin/buses ,
@@ -216,7 +216,7 @@ GET /admin/reports/summary ?from=&to= Totals per bus: trips,
 distance, running time
 GET/PUT /admin/settings { alert_radius_m } Alert radius, starting
 value 500
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 5 of 7
 WebSocket protocol and error codes
 Live channel
@@ -266,7 +266,7 @@ client
 HTTP Code Meaning
 400 VALIDATION_ERROR Field missing or out of range
 400 OTP_INVALID , OTP_EXPIRED Phone sign-in failed
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 6 of 7
 HTTP Code Meaning
 401 TOKEN_EXPIRED , TOKEN_INVALID ,
@@ -279,6 +279,17 @@ failed
 422 POLYLINE_FAILED Route could not be generated
 429 RATE_LIMITED Wait for Retry-After
 503 DB_UNAVAILABLE Temporary; retry
-CTMS V1 ­ API Specification
+CTMS V1 ï¿½ API Specification
 Page 7 of 7
 
+
+Driver route assignments (V1.3)
+
+GET /routes/assigned is driver-only and returns the active routes assigned to the caller.
+POST /trips/start accepts only an assigned route; when route_id is omitted, the linked bus
+default route is used and must also be assigned. An unassigned, draft or inactive route returns
+400 VALIDATION_ERROR.
+
+Admins manage assignments through GET /admin/drivers/{id}/routes and PUT
+/admin/drivers/{id}/routes with { "route_ids": [UUID, ...] }. PUT replaces the complete
+allow-list and accepts only active routes.
