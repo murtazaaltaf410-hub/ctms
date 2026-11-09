@@ -509,6 +509,8 @@ class _AsyncList<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return value.when(
+      // Keep the list on screen while it reloads after an edit (no spinner flash).
+      skipLoadingOnReload: true,
       data: (items) {
         if (items.isEmpty) {
           return EmptyView(title: empty);
@@ -532,8 +534,9 @@ class _AsyncList<T> extends StatelessWidget {
 Future<void> _run(
   BuildContext context,
   WidgetRef ref,
-  Future<void> Function() action,
-) async {
+  Future<void> Function() action, {
+  void Function()? refresh,
+}) async {
   try {
     await action();
   } catch (error) {
@@ -541,7 +544,12 @@ Future<void> _run(
       _error(context, error);
     }
   } finally {
-    refreshAdmin(ref);
+    // A stop edit only changes routes; avoid re-fetching every admin list.
+    if (refresh != null) {
+      refresh();
+    } else {
+      refreshAdmin(ref);
+    }
   }
 }
 
@@ -716,6 +724,7 @@ Future<void> _routeDetail(
                   () => ref.read(adminRepositoryProvider).updateStop(stop.id, {
                     'name': name,
                   }),
+                  refresh: () => ref.invalidate(adminRoutesProvider),
                 );
               },
               subtitle: Text(
@@ -757,30 +766,57 @@ Future<void> _routeDetail(
 }
 
 Future<String?> _askStopName(BuildContext context, String current) async {
-  final controller = TextEditingController(text: current);
   final name = await showDialog<String>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (_) => _RenameStopDialog(current: current),
+  );
+  return name == null || name.isEmpty || name == current ? null : name;
+}
+
+/// Owns its [TextEditingController] so it is disposed only after the dialog's
+/// exit animation has finished (disposing it right after `showDialog` returns
+/// throws "used after being disposed" while the field is still on screen).
+class _RenameStopDialog extends StatefulWidget {
+  const _RenameStopDialog({required this.current});
+
+  final String current;
+
+  @override
+  State<_RenameStopDialog> createState() => _RenameStopDialogState();
+}
+
+class _RenameStopDialogState extends State<_RenameStopDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.current,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
       title: const Text('Rename stop'),
       content: TextField(
-        controller: controller,
+        controller: _controller,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
+          onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
           child: const Text('Save'),
         ),
       ],
-    ),
-  );
-  controller.dispose();
-  return name == null || name.isEmpty || name == current ? null : name;
+    );
+  }
 }
 
 Future<void> _addStop(
