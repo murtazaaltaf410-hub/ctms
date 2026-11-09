@@ -177,7 +177,7 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
     assert row is not None
     bus_live = await load_bus(app, con, row)
     get_live(app).add(bus_live)
-    await broadcast(app, trip_started(bus_live.bus_id, trip_id))
+    await broadcast(app, trip_started(bus_live.bus_id, trip_id), route_id)
     await emit_trip(app, TripEvent(trip_id, bus_live.bus_id, route_id, "started"))
     return trip_out(app, row)
 
@@ -192,7 +192,7 @@ async def set_status(app: FastAPI, con: asyncpg.Connection, row: asyncpg.Record,
         bus = await load_bus(app, con, row)
         live.add(bus)
     bus.status, bus.note = status, note
-    await broadcast(app, bus_status(bus))
+    await broadcast(app, bus_status(bus), bus.route_id)
     await emit_trip(app, TripEvent(row["id"], row["bus_id"], row["route_id"], "status"))
 
 
@@ -241,7 +241,7 @@ async def end_trip(app: FastAPI, con: asyncpg.Connection, trip_id: UUID, *, clos
     assert row is not None
     live.remove_trip(trip_id)
     if closed:
-        await broadcast(app, trip_ended(row["bus_id"], trip_id))
+        await broadcast(app, trip_ended(row["bus_id"], trip_id), row["route_id"])
         await emit_trip(app, TripEvent(trip_id, row["bus_id"], row["route_id"], "ended"))
     return summarize(app, row)
 

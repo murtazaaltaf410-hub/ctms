@@ -75,6 +75,7 @@ async def test_tc20_delete_student_removes_personal_data(client, google_login, c
         "insert into public.audit_log (actor_id, action, meta) values ($1, 'x', '{\"name\": \"L\"}')", uid
     )
 
+    assert await con.fetchval("select count(*) from public.student_profiles where user_id = $1", uid) == 1
     resp = await client.delete("/api/v1/me", headers=headers)
     assert resp.status_code == 204
 
@@ -86,6 +87,7 @@ async def test_tc20_delete_student_removes_personal_data(client, google_login, c
         ("student_locations", "user_id"),
         ("alert_settings", "user_id"),
         ("alert_log", "student_id"),
+        ("student_profiles", "user_id"),  # ADR-10: the registration goes with the account
     ):
         assert await con.fetchval(f"select count(*) from public.{table} where {col} = $1", uid) == 0, table
     metas = await con.fetch(

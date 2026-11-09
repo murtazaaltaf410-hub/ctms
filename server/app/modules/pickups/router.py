@@ -26,6 +26,7 @@ from app.errors import NotFound, ValidationFailed
 from app.geo import haversine_m
 from app.geo.snap import snap_forward
 from app.live.state import RouteGeom, get_live
+from app.modules.students.service import ApprovedStudent, approved_route_id
 from app.modules.trips.service import owned_active_trip
 from app.schemas import ApiModel, UtcDateTime
 
@@ -91,8 +92,11 @@ async def _route_geom(con: asyncpg.Connection, route_id: UUID) -> RouteGeom:
 
 
 @router.post("/pickups", response_model=PickupOut, status_code=status.HTTP_201_CREATED)
-async def create_pickup(body: PickupIn, request: Request, user: Student, con: Conn) -> PickupOut:
-    """Place a pickup pin. It must lie close to the route line; a student has one waiting pin at a time."""
+async def create_pickup(body: PickupIn, request: Request, user: ApprovedStudent, con: Conn) -> PickupOut:
+    """Place a pickup pin. It must lie close to the route line; a student has one waiting pin at a time.
+    Needs an approved registration, and the pin's route must be the one on the student's profile."""
+    if body.route_id != await approved_route_id(con, user.id):
+        raise ValidationFailed("route_id: must be the route on your registration")
     store = request.app.state.settings_store
     geom = await _route_geom(con, body.route_id)
     max_offset = float(store.get_cached("pickup_max_route_distance_m"))
@@ -119,7 +123,7 @@ async def create_pickup(body: PickupIn, request: Request, user: Student, con: Co
 
 
 @router.get("/me/pickup", response_model=PickupOut | None)
-async def my_pickup(user: Student, con: Conn) -> PickupOut | None:
+async def my_pickup(user: ApprovedStudent, con: Conn) -> PickupOut | None:
     row = await con.fetchrow(
         _SELECT + " where p.student_id = $1 and p.status = 'waiting' and p.expires_at > $2",
         user.id, clock.now(),

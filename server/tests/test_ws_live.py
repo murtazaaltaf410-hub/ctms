@@ -57,12 +57,12 @@ async def test_bad_first_message_closes(live_app, first, reason):
 async def test_ping_pong_and_broadcasts(
     client, live_app, google_login, driver_with_bus, start_trip, post_fixes, fake_clock
 ):
+    driver = await driver_with_bus()  # first: the route exists before the student is registered on it
     student = await google_login()
     ws, task = await connect(live_app, student["access_token"])
     assert ws.closed is None and hub_clients(live_app) == 1
     ws.say('{"type": "ping"}')
     await wait_until(lambda: {"type": "pong"} in ws.sent)
-    driver = await driver_with_bus()
     trip = await start_trip(driver)
     await post_fixes(driver, trip["id"], [along_fix(0, fake_clock.current, speed=6.0)])
     await client.post(

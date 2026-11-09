@@ -8,6 +8,13 @@ calling `con.transaction()` gets a SAVEPOINT.
 Google and Firebase are faked through `app.state` (see `FakeGoogle`, `FakeFirebase`).
 Drivers made with `create_user('driver', ...)` get the password DEFAULT_DRIVER_PASSWORD, so
 `driver_login(identifier)` works without further set-up.
+
+Students (ADR-10): `create_user('student', ...)` and `google_login(...)` also create an APPROVED
+`student_profiles` row, so existing tests keep working. Pass `profile='pending'|'rejected'` for another
+status or `profile=None` for a student with no registration. The default profile takes the first route that
+exists in the test (or none); route-creating test helpers call `adopt_unrouted_students` so a default
+student ends up on the test's route. That "adoption" is TEST-ONLY: production approval always requires a
+route and a bus on that route, and a profile without a route sees nothing.
 """
 
 from __future__ import annotations
@@ -35,6 +42,33 @@ def default_driver_hash() -> str:
     if not _DEFAULT_HASH:
         _DEFAULT_HASH.append(hash_password(DEFAULT_DRIVER_PASSWORD))
     return _DEFAULT_HASH[0]
+
+
+async def add_student_profile(
+    con: asyncpg.Connection,
+    user_id: UUID,
+    *,
+    name: str = "Test Student",
+    status: str = "approved",
+    route_id: UUID | None = None,
+    bus_id: UUID | None = None,
+    department: str | None = "Test Dept",
+    phone: str | None = None,
+) -> None:
+    """Insert a student_profiles row. Without `route_id` an approved student gets the first existing route."""
+    if route_id is None:
+        route_id = await con.fetchval("select id from public.routes order by ctid limit 1")
+    await con.execute(
+        """insert into public.student_profiles (user_id, full_name, phone, department, route_id, status, bus_id)
+           values ($1, $2, $3, $4, $5, $6, $7) on conflict (user_id) do nothing""",
+        user_id, name or "Test Student", phone, department, route_id, status, bus_id if status == "approved" else None,
+    )
+
+
+async def adopt_unrouted_students(con: asyncpg.Connection, route_id: UUID) -> None:
+    """TEST-ONLY. Put default test students that have no route yet on the route a test just created."""
+    await con.execute(
+        "update public.student_profiles set route_id = $1 where route_id is null and status = 'approved'", route_id)
 
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/ctms_test")
@@ -165,12 +199,16 @@ def create_user(con: asyncpg.Connection) -> Callable:
         active: bool = True,
         userid: str | None = None,
         password: str | None = None,
+        profile: str | None = "approved",
+        route_id: UUID | None = None,
+        bus_id: UUID | None = None,
     ) -> UUID:
-        """Drivers get `password` (default DEFAULT_DRIVER_PASSWORD); other roles have no password."""
+        """Drivers get `password` (default DEFAULT_DRIVER_PASSWORD); other roles have no password.
+        Students get a student_profiles row with status `profile` (None = no registration)."""
         password_hash = None
         if role == "driver":
             password_hash = hash_password(password) if password else default_driver_hash()
-        return await con.fetchval(
+        user_id = await con.fetchval(
             """insert into public.users (role, name, email, phone, active, userid, password_hash)
                values ($1, $2, $3, $4, $5, $6, $7) returning id""",
             role,
@@ -181,6 +219,9 @@ def create_user(con: asyncpg.Connection) -> Callable:
             userid,
             password_hash,
         )
+        if role == "student" and profile:
+            await add_student_profile(con, user_id, name=name, status=profile, route_id=route_id, bus_id=bus_id)
+        return user_id
 
     return make
 
@@ -199,11 +240,16 @@ def create_bus(con: asyncpg.Connection) -> Callable:
 
 
 @pytest.fixture
-def google_login(client: httpx.AsyncClient, google: FakeGoogle) -> Callable:
-    async def login(sub: str = "sub-1", email: str = "student@uok.edu.in", name: str = "Student") -> dict:
+def google_login(client: httpx.AsyncClient, google: FakeGoogle, con: asyncpg.Connection) -> Callable:
+    async def login(sub: str = "sub-1", email: str = "student@uok.edu.in", name: str = "Student",
+                    profile: str | None = "approved") -> dict:
+        """Students signing in get an approved registration unless `profile` says otherwise (None = none)."""
         resp = await client.post("/api/v1/auth/google", json={"id_token": google.token(sub, email, name)})
         assert resp.status_code == 200, resp.text
-        return resp.json()
+        body = resp.json()
+        if body["user"]["role"] == "student" and profile:
+            await add_student_profile(con, UUID(body["user"]["id"]), name=name, status=profile)
+        return body
 
     return login
 

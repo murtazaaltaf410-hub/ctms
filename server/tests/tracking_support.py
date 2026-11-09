@@ -24,7 +24,7 @@ from app.geo import cumulative_distances
 from app.geo.polyline import decode, encode
 from app.live import hooks
 from app.live.hub import get_hub
-from tests.conftest import bearer
+from tests.conftest import adopt_unrouted_students, bearer
 
 # A straight route due north from campus: 11 points ~111 m apart (~1.11 km).
 ORIGIN = (34.1200, 74.8300)
@@ -89,6 +89,7 @@ def make_route(con: asyncpg.Connection) -> Callable:
             cum,
             cum[-1],
         )
+        await adopt_unrouted_students(con, route_id)
         stop_ids = []
         for seq, along in enumerate(stops or [0.0, 555.0, cum[-1]], start=1):
             lat, lng = point_at(along)

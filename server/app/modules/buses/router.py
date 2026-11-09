@@ -34,6 +34,7 @@ class BusIn(ApiModel):
     plate: str = Field(min_length=1, max_length=20)
     active: bool = True
     default_route_id: UUID | None = None
+    capacity: int | None = Field(default=None, ge=0, le=500, description="Seats for students; null = not set")
 
 
 class BusPatch(ApiModel):
@@ -41,6 +42,7 @@ class BusPatch(ApiModel):
     plate: str | None = Field(default=None, min_length=1, max_length=20)
     active: bool | None = None
     default_route_id: UUID | None = Field(default=None, description="null clears the default route")
+    capacity: int | None = Field(default=None, ge=0, le=500, description="null = not set")
 
 
 class BusAdminOut(ApiModel):
@@ -51,6 +53,7 @@ class BusAdminOut(ApiModel):
     driver_id: UUID | None
     driver_name: str | None
     default_route_id: UUID | None
+    capacity: int | None
     has_active_trip: bool
     created_at: UtcDateTime
 
@@ -61,7 +64,7 @@ class BusPage(ApiModel):
 
 
 _SELECT = """select b.id, b.label, b.plate, b.active, b.driver_id, u.name as driver_name, b.default_route_id,
-                    b.created_at,
+                    b.capacity, b.created_at,
                     exists(select 1 from public.trips t where t.bus_id = b.id and t.ended_at is null)
                       as has_active_trip
              from public.buses b left join public.users u on u.id = b.driver_id"""
@@ -104,9 +107,9 @@ async def create_bus(body: BusIn, user: AdminUser, con: Conn) -> BusAdminOut:
         await _check_route(con, body.default_route_id)
         try:
             bus_id = await con.fetchval(
-                """insert into public.buses (label, plate, active, default_route_id) values ($1, $2, $3, $4)
-                   returning id""",
-                body.label, body.plate, body.active, body.default_route_id,
+                """insert into public.buses (label, plate, active, default_route_id, capacity)
+                   values ($1, $2, $3, $4, $5) returning id""",
+                body.label, body.plate, body.active, body.default_route_id, body.capacity,
             )
         except asyncpg.UniqueViolationError as exc:
             raise _plate_taken() from exc

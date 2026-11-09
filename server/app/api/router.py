@@ -20,6 +20,10 @@ api_router = APIRouter(prefix=API_PREFIX,
 # --- Phase 2: auth, me -----------------------------------------------------------
 api_router.include_router(auth_router)
 api_router.include_router(me_router)
+# ADR-10: student registration. Before the routes router, so /routes/nearest is not a route id.
+from app.modules.students.router import router as students_router  # noqa: E402
+
+api_router.include_router(students_router)
 
 # --- Phase 3: trips, tracking, live, ETA (add include_router lines here) ---------
 from app.modules.tracking.router import router as tracking_router  # noqa: E402  (trips, locations, live, ETA)

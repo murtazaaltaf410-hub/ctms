@@ -55,6 +55,8 @@ select sl.user_id, sl.lat, sl.lng,
 from public.student_locations sl
 join public.alert_settings a on a.user_id = sl.user_id and a.enabled
 join public.users u on u.id = sl.user_id and u.role = 'student' and u.active
+join public.student_profiles sp on sp.user_id = sl.user_id and sp.status = 'approved'
+join public.trips pt on pt.id = $7 and pt.route_id = sp.route_id
 where sl.lat between $1 and $2 and sl.lng between $3 and $4
   and sl.recorded_at > $5 and sl.accuracy_m < $6
   and exists(select 1 from public.trips t where t.id = $7 and t.ended_at is null and t.status <> 'breakdown')

@@ -18,6 +18,7 @@ from app.db import Conn
 from app.deps import CurrentUser, require_role
 from app.errors import ValidationFailed
 from app.modules.alerts import engine as _engine  # noqa: F401  (registers listeners)
+from app.modules.students.service import ApprovedStudent
 from app.schemas import ApiModel, UtcDateTime
 
 router = APIRouter(prefix="/me", tags=["alerts"])
@@ -53,7 +54,7 @@ class SentAlertsOut(ApiModel):
 
 
 @router.post("/location", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-async def post_location(body: LocationIn, request: Request, user: Student, con: Conn) -> Response:
+async def post_location(body: LocationIn, request: Request, user: ApprovedStudent, con: Conn) -> Response:
     """Store the student's latest location (only the newest is kept; used solely for nearby alerts).
     Rejects fixes with accuracy of `student_fix_max_accuracy_m` or worse, or older than
     `student_fix_max_age_s`; a timestamp in the future is clamped to server time."""
@@ -79,7 +80,7 @@ async def post_location(body: LocationIn, request: Request, user: Student, con: 
 
 
 @router.put("/alert-settings", response_model=AlertSettingsOut)
-async def put_alert_settings(body: AlertSettingsIn, user: Student, con: Conn) -> AlertSettingsOut:
+async def put_alert_settings(body: AlertSettingsIn, user: ApprovedStudent, con: Conn) -> AlertSettingsOut:
     """Turn alert mode on or off. Enabling requires a registered push token (`PUT /me/push-token`).
     Turning it off also deletes the stored location, which is then no longer needed."""
     async with con.transaction():

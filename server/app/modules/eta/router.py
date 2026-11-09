@@ -15,6 +15,7 @@ from app.deps import AuthUser
 from app.errors import NotFound
 from app.live.state import classify, get_live
 from app.modules.eta.service import compute_eta
+from app.modules.students.service import student_scope
 from app.modules.trips.schedule import Slot, next_departure
 from app.modules.trips.service import campus_tz
 from app.schemas import ApiModel, UtcDateTime
@@ -47,10 +48,11 @@ class StopEta(ApiModel):
 @router.get("/stops/{stop_id}/eta", response_model=StopEta)
 async def stop_eta(stop_id: UUID, request: Request, user: AuthUser, con: Conn) -> StopEta:
     app = request.app
+    only_route = await student_scope(con, user)  # 403 REGISTRATION_REQUIRED until approved (ADR-10)
     stop = await con.fetchrow(
         "select id, route_id, lat, lng from public.stops where id = $1 and active", stop_id
     )
-    if stop is None:
+    if stop is None or (only_route is not None and stop["route_id"] != only_route):
         raise NotFound("Stop not found")
     store = app.state.settings_store
     now: datetime = clock.now()

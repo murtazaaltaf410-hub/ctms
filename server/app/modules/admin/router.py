@@ -17,8 +17,9 @@ from app.modules.routes.router import public_router as routes_router
 from app.modules.schedules.router import admin_router as admin_schedules_router
 from app.modules.schedules.router import public_router as schedules_router
 from app.modules.settings.router import router as settings_router
+from app.modules.students.admin import router as students_admin_router
 
 router = APIRouter()
 for sub in (routes_router, schedules_router, buses_router, drivers_router, admin_routes_router,
-            admin_schedules_router, admins_router, reports_router, settings_router):
+            admin_schedules_router, admins_router, reports_router, settings_router, students_admin_router):
     router.include_router(sub)

@@ -20,6 +20,7 @@ import app.jobs.trips
 import app.live.writer
 import app.live.ws  # noqa: F401  (registers jobs, shutdown flush and WS revocation handlers)
 from app import clock
+from app.db import Conn
 from app.deps import AuthUser, bearer, get_current_user
 from app.errors import (
     DB_CONNECTION_ERRORS,
@@ -32,6 +33,7 @@ from app.errors import (
 from app.live.conn import live_conn
 from app.live.state import BusLive, LiveState, classify, get_live
 from app.modules.eta.router import router as eta_router
+from app.modules.students.service import student_scope
 from app.modules.tracking.service import Fix, ingest
 from app.modules.trips import service as trips
 from app.modules.trips.router import router as trips_router
@@ -152,14 +154,17 @@ async def post_locations(
 
 
 @tracking.get("/buses/live", response_model=list[LiveBus], tags=["buses"])
-async def live_buses(request: Request, user: AuthUser) -> list[LiveBus]:
-    """Buses on an active trip that have reported a position (T1: no trip, not listed)."""
+async def live_buses(request: Request, user: AuthUser, con: Conn) -> list[LiveBus]:
+    """Buses on an active trip that have reported a position (T1: no trip, not listed).
+    A student needs an approved registration (403 REGISTRATION_REQUIRED) and sees only the buses
+    running the route on their profile (ADR-10); drivers and admins see every bus."""
+    only_route = await student_scope(con, user)
     store = request.app.state.settings_store
     now = clock.now()
     thresholds = {k: float(store.get_cached(k)) for k in ("stale_after_s", "offline_after_s", "stopped_speed_mps")}
     out = []
     for bus in get_live(request.app).buses.values():
-        if not bus.has_position:
+        if not bus.has_position or (only_route is not None and bus.route_id != only_route):
             continue
         out.append(LiveBus(
             bus_id=bus.bus_id, label=bus.bus_label, trip_id=bus.trip_id, route_id=bus.route_id,

@@ -139,6 +139,7 @@ class Settings(BaseSettings):
     driver_alert_radius_m: float = 500       # alert the driver/student when the bus is this near a pin
     pickup_retention_s: int = 86400          # finished requests are deleted after this long
     pickup_label_max_chars: int = 60
+    nearest_route_max_m: float = 2000        # GET /routes/nearest: farther than this from every route = null
 
     # --- Phase 9: GET /api/v1/config (runbook: minimum supported app version) ------
     # Also overridable per environment with a `min_app_version` row in the settings table.

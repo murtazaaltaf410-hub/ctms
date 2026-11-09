@@ -101,7 +101,7 @@ async def test_rider_flag_clears_once_beyond_radius(app, engine, push, world, st
 
 async def test_a4_two_buses_within_a_minute_give_one_combined_alert(app, con, engine, push, world, student, fake_clock):
     bus2 = await world("Bus 2")
-    bus3 = await world("Bus 3", route_name="Hazratbal")
+    bus3 = await world("Bus 3", route_id=bus2.route_id)  # a student sees one route; both buses run it
     sid = await student()
     await approach(app, engine, fake_clock, bus2, [600, 420])  # alert at t+4
     fake_clock.advance(12)
@@ -110,7 +110,7 @@ async def test_a4_two_buses_within_a_minute_give_one_combined_alert(app, con, en
     assert [m.title for m in push.sent] == ["Bus nearby", "2 buses are nearby"]
     combined = push.sent[1]
     assert combined.body == (
-        "Bus 2 (North Campus route) is about 400 m away; Bus 3 (Hazratbal route) is about 400 m away"
+        "Bus 2 (North Campus route) is about 400 m away; Bus 3 (North Campus route) is about 400 m away"
     )
     # Same notification tag: the combined push replaces the first one on the device.
     assert {m.tag for m in push.sent} == {ALERT_TAG}
@@ -119,7 +119,8 @@ async def test_a4_two_buses_within_a_minute_give_one_combined_alert(app, con, en
 
 
 async def test_a4_bus_after_the_window_alerts_on_its_own(app, engine, push, world, student, fake_clock):
-    bus2, bus3 = await world("Bus 2"), await world("Bus 3")
+    bus2 = await world("Bus 2")
+    bus3 = await world("Bus 3", route_id=bus2.route_id)
     await student()
     await approach(app, engine, fake_clock, bus2, [600, 420])  # alert at t+4
     fake_clock.advance(53)

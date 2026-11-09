@@ -6,7 +6,9 @@ Protocol:
   2. Client sends `{"type": "ping"}` every `ws_heartbeat_s` (25 s); server replies
      `{"type": "pong"}`. A client silent for `ws_idle_timeout_s` is dropped.
   3. Server pushes `bus_position`, `bus_status`, `trip_started`, `trip_ended`
-     (and `announcement` from Phase 4) to every authenticated client via the hub.
+     (and `announcement` from Phase 4) via the hub. Admins and drivers get every bus; a student
+     only gets the buses of the route on their approved registration (ADR-10), re-scoped live
+     when an admin approves, reassigns or rejects them. Announcements go to everyone.
 
 Close codes: 4401 with reason AUTH_TIMEOUT | AUTH_REQUIRED | TOKEN_INVALID |
 TOKEN_EXPIRED | SESSION_REPLACED (also sent when the session is revoked while
@@ -56,6 +58,20 @@ async def authenticate(app: Any, token: str) -> tuple[UUID, UUID]:
     return claims.user_id, claims.session_id
 
 
+async def student_scope(app: Any, user_id: UUID) -> tuple[bool, UUID | None]:
+    """(is_student, route a student may see): the approved profile's route, else None (ADR-10)."""
+    async with live_conn(app) as con:
+        row = await con.fetchrow(
+            """select u.role, case when sp.status = 'approved' then sp.route_id end as route_id
+                 from public.users u left join public.student_profiles sp on sp.user_id = u.id
+                where u.id = $1""",
+            user_id,
+        )
+    if row is None:
+        raise TokenInvalid()
+    return row["role"] == "student", row["route_id"]
+
+
 async def _close(ws: Any, code: int, reason: str) -> None:
     try:
         await ws.close(code=code, reason=reason)
@@ -89,6 +105,7 @@ async def live_ws(ws: WebSocket) -> None:
         return
     try:
         user_id, session_id = await authenticate(app, token)
+        is_student, route_id = await student_scope(app, user_id)
     except DbUnavailable:
         await _close(ws, CLOSE_TRY_AGAIN, DbUnavailable.code)
         return
@@ -96,7 +113,7 @@ async def live_ws(ws: WebSocket) -> None:
         await _close(ws, CLOSE_AUTH, exc.code)
         return
     hub = get_hub(app)
-    hub.add(ws, user_id, session_id)
+    hub.add(ws, user_id, session_id, student=is_student, route_id=route_id)
     idle = float(store.get_cached("ws_idle_timeout_s"))
     try:
         while True:

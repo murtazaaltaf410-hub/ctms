@@ -68,6 +68,10 @@ class NotYourTrip(AppError):
     status_code, code, message = 403, "NOT_YOUR_TRIP", "This trip belongs to another driver"
 
 
+class RegistrationRequired(AppError):
+    status_code, code, message = 403, "REGISTRATION_REQUIRED", "Your registration must be approved first"
+
+
 # 404
 class NotFound(AppError):
     status_code, code, message = 404, "NOT_FOUND", "Unknown ID"
@@ -84,6 +88,10 @@ class LastAdmin(AppError):
 
 class InUse(AppError):
     status_code, code, message = 409, "IN_USE", "In use by an active trip"
+
+
+class NoSeat(AppError):
+    status_code, code, message = 409, "NO_SEAT", "The bus has no free seat"
 
 
 # 422
@@ -107,7 +115,8 @@ class DbUnavailable(AppError):
 
 ERROR_CLASSES: tuple[type[AppError], ...] = (
     ValidationFailed, TokenExpired, TokenInvalid, InvalidCredentials, SessionReplaced,
-    ForbiddenRole, NotYourTrip, NotFound, TripAlreadyActive, LastAdmin, InUse, PolylineFailed,
+    ForbiddenRole, NotYourTrip, RegistrationRequired, NotFound, TripAlreadyActive, LastAdmin, InUse, NoSeat,
+    PolylineFailed,
     RateLimited, DbUnavailable,
 )
 

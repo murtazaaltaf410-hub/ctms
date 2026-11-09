@@ -150,7 +150,7 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
         if moved:
             writer.queue_trip_progress(bus.trip_id, now, bus.distance_m)
     if moved:
-        await broadcast(app, bus_position(bus))
+        await broadcast(app, bus_position(bus), bus.route_id)
         await emit_fix(app, FixEvent(
             trip_id=bus.trip_id, bus_id=bus.bus_id, route_id=bus.route_id, bus_label=bus.bus_label,
             route_name=bus.route.name, lat=bus.lat, lng=bus.lng,  # type: ignore[arg-type]

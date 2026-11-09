@@ -22,6 +22,7 @@ from app.live.hooks import FixEvent
 from app.modules.alerts.engine import AlertEngine, get_engine
 from app.modules.alerts.geo import offset
 from app.push import FakeSender, PushDispatcher, use_connection
+from tests.conftest import adopt_unrouted_students
 
 BASE = (34.1310, 74.8370)  # University of Kashmir, North Campus (approx.)
 _seq = count(1)
@@ -86,9 +87,14 @@ def engine(app, push) -> AlertEngine:
 
 @pytest.fixture
 def world(con: asyncpg.Connection, create_user: Callable, create_bus: Callable) -> Callable:
-    async def make(label: str = "Bus 2", route_name: str = "North Campus") -> Trip:
+    async def make(label: str = "Bus 2", route_name: str = "North Campus", route_id: UUID | None = None) -> Trip:
+        """A route (or `route_id` to put a second bus on the same route), driver, bus and active trip."""
         n = next(_seq)
-        route_id = await con.fetchval("insert into public.routes (name) values ($1) returning id", route_name)
+        if route_id is None:
+            route_id = await con.fetchval("insert into public.routes (name) values ($1) returning id", route_name)
+            await adopt_unrouted_students(con, route_id)
+        else:
+            route_name = await con.fetchval("select name from public.routes where id = $1", route_id)
         driver_id = await create_user("driver", name=f"Driver {n}", phone=f"+9199000{n:05d}")
         bus_id = await create_bus(driver_id, label=label, plate=f"JK01P4{n:04d}")
         trip_id = await con.fetchval(

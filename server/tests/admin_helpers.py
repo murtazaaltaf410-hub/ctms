@@ -15,7 +15,7 @@ import pytest
 
 from app.integrations.routes_api import FakeRouteProvider
 from app.modules.routes.geo import cumulative_distances, encode_polyline
-from tests.conftest import bearer
+from tests.conftest import adopt_unrouted_students, bearer
 
 # Points along a road on North Campus (illustrative).
 CAMPUS = [(34.12600, 74.83500), (34.12780, 74.83680), (34.12950, 74.83820), (34.13150, 74.83990)]
@@ -59,6 +59,7 @@ async def insert_route(
         cum,
         cum[-1],
     )
+    await adopt_unrouted_students(con, route_id)
     for seq, ((lat, lng), dist) in enumerate(zip(points, cum, strict=True), start=1):
         await con.execute(
             """insert into public.stops (route_id, name, lat, lng, sequence, dist_along_m)

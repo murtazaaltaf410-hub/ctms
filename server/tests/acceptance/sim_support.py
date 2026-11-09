@@ -25,6 +25,7 @@ from app.live.ws import live_ws
 from app.modules.alerts.engine import get_engine
 from app.push import get_push
 from scripts.simulate import Batch, DriveConfig, Dropout, Event, Route, SimFix, StatusChange, batches, drive, timeline
+from tests.conftest import adopt_unrouted_students
 from tests.tracking_support import FakeWS, hub_clients, wait_until
 
 # An L-shaped campus route: ~1.5 km north, then ~1.5 km east (one corner, so the
@@ -64,6 +65,7 @@ async def insert_sim_route(
         cum,
         cum[-1],
     )
+    await adopt_unrouted_students(con, route_id)
     geom = Route(decoded)
     stop_ids, alongs = [], []
     for seq, along in enumerate(stops_along, start=1):
