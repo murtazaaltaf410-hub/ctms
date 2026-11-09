@@ -82,3 +82,16 @@ class AuthTokens {
   final String refreshToken;
   final AppUser user;
 }
+
+/// `POST /auth/login` response: the tokens plus the temporary-password flag.
+class LoginResult {
+  const LoginResult({required this.tokens, required this.mustChangePassword});
+
+  factory LoginResult.fromJson(Json json) => LoginResult(
+    tokens: AuthTokens.fromJson(json),
+    mustChangePassword: json['must_change_password'] as bool? ?? false,
+  );
+
+  final AuthTokens tokens;
+  final bool mustChangePassword;
+}

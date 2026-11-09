@@ -10,6 +10,7 @@ import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import 'admin_models.dart';
 import 'admin_providers.dart';
+import 'driver_form_screen.dart';
 import 'route_map_editor.dart';
 
 /// Operational admin console. The live list remains useful when Maps is unavailable.
@@ -245,21 +246,60 @@ class _FleetTab extends ConsumerWidget {
                 value: ref.watch(adminDriversProvider),
                 empty: 'No drivers yet.',
                 item: (driver) => ListTile(
-                  title: Text(driver.name),
-                  subtitle: Text(
-                    '${driver.phone ?? 'No phone'}  '
-                    '${driver.busLabel ?? 'Unassigned'}',
+                  key: Key('driver-${driver.id}'),
+                  title: Row(
+                    children: [
+                      Flexible(child: Text(driver.name)),
+                      if (driver.locked) ...[
+                        const SizedBox(width: 8),
+                        const Chip(
+                          key: Key('locked-chip'),
+                          label: Text('Locked'),
+                          visualDensity: VisualDensity.compact,
+                          avatar: Icon(Icons.lock_outline, size: 16),
+                        ),
+                      ],
+                    ],
                   ),
-                  trailing: Switch(
-                    value: driver.active,
-                    onChanged: (active) => _run(
-                      context,
-                      ref,
-                      () => ref.read(adminRepositoryProvider).updateDriver(
-                        driver.id,
-                        {'active': active},
+                  subtitle: Text(
+                    '${driver.contactLine}\n'
+                    '${driver.busLabel ?? 'Unassigned'}'
+                    '${driver.mustChangePassword ? '  (temporary password)' : ''}',
+                  ),
+                  isThreeLine: true,
+                  onTap: () => _editDriver(tabContext, ref, driver),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PopupMenuButton<String>(
+                        key: Key('driver-menu-${driver.id}'),
+                        onSelected: (choice) {
+                          if (choice == 'edit') {
+                            _editDriver(tabContext, ref, driver);
+                          } else {
+                            _resetDriverPassword(tabContext, ref, driver);
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(
+                            value: 'reset',
+                            child: Text('Reset password'),
+                          ),
+                        ],
                       ),
-                    ),
+                      Switch(
+                        value: driver.active,
+                        onChanged: (active) => _run(
+                          context,
+                          ref,
+                          () => ref.read(adminRepositoryProvider).updateDriver(
+                            driver.id,
+                            {'active': active},
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -594,25 +634,27 @@ String _days(List<int> days) {
 
 Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
   final isBus = DefaultTabController.of(context).index == 0;
+  if (!isBus) {
+    await _createDriver(context, ref);
+    return;
+  }
   final first = TextEditingController();
   final second = TextEditingController();
 
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: Text(isBus ? 'Add bus' : 'Add driver'),
+      title: const Text('Add bus'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
             controller: first,
-            decoration: InputDecoration(labelText: isBus ? 'Label' : 'Name'),
+            decoration: const InputDecoration(labelText: 'Label'),
           ),
           TextField(
             controller: second,
-            decoration: InputDecoration(
-              labelText: isBus ? 'Plate' : 'Phone (+91...)',
-            ),
+            decoration: const InputDecoration(labelText: 'Plate'),
           ),
         ],
       ),
@@ -630,19 +672,12 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
             await _run(
               context,
               ref,
-              () => isBus
-                  ? ref
-                        .read(adminRepositoryProvider)
-                        .createBus(
-                          label: first.text.trim(),
-                          plate: second.text.trim(),
-                        )
-                  : ref
-                        .read(adminRepositoryProvider)
-                        .createDriver(
-                          name: first.text.trim(),
-                          phone: second.text.trim(),
-                        ),
+              () => ref
+                  .read(adminRepositoryProvider)
+                  .createBus(
+                    label: first.text.trim(),
+                    plate: second.text.trim(),
+                  ),
             );
           },
           child: const Text('Create'),
@@ -650,6 +685,86 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
       ],
     ),
   );
+}
+
+Future<void> _createDriver(BuildContext context, WidgetRef ref) async {
+  final input = await Navigator.push<AdminDriverInput>(
+    context,
+    MaterialPageRoute(builder: (_) => const DriverFormScreen()),
+  );
+  if (input == null || !context.mounted) return;
+  String? password;
+  await _run(context, ref, () async {
+    password = await ref.read(adminRepositoryProvider).createDriver(input);
+  });
+  if (password != null && context.mounted) {
+    await showTemporaryPassword(
+      context,
+      driverName: input.name,
+      password: password!,
+    );
+  }
+}
+
+Future<void> _editDriver(
+  BuildContext context,
+  WidgetRef ref,
+  AdminDriver driver,
+) async {
+  final input = await Navigator.push<AdminDriverInput>(
+    context,
+    MaterialPageRoute(builder: (_) => DriverFormScreen(driver: driver)),
+  );
+  if (input == null || !context.mounted) return;
+  await _run(
+    context,
+    ref,
+    () => ref
+        .read(adminRepositoryProvider)
+        .updateDriver(driver.id, input.toJson()),
+  );
+}
+
+Future<void> _resetDriverPassword(
+  BuildContext context,
+  WidgetRef ref,
+  AdminDriver driver,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Reset password for ${driver.name}?'),
+      content: const Text(
+        'The driver is signed out everywhere and must choose a new password '
+        'at the next sign-in.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-reset'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Reset'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  String? password;
+  await _run(context, ref, () async {
+    password = await ref
+        .read(adminRepositoryProvider)
+        .resetDriverPassword(driver.id);
+  });
+  if (password != null && context.mounted) {
+    await showTemporaryPassword(
+      context,
+      driverName: driver.name,
+      password: password!,
+    );
+  }
 }
 
 Future<void> _routeForm(BuildContext context, WidgetRef ref) async {

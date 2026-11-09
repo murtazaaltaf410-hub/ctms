@@ -9,6 +9,7 @@ String? redirect(
   UserRole? role = UserRole.student,
   bool? privacy = true,
   bool update = false,
+  bool mustChange = false,
 }) => appRedirect(
   RedirectInput(
     location: location,
@@ -16,6 +17,7 @@ String? redirect(
     role: status == AuthStatus.signedIn ? role : null,
     privacyAccepted: privacy,
     updateRequired: update,
+    mustChangePassword: mustChange,
   ),
 );
 
@@ -72,6 +74,38 @@ void main() {
       redirect('/student', privacy: null),
       '/splash',
       reason: 'consents still loading',
+    );
+  });
+
+  test('temporary-password gate holds the driver on /change-password', () {
+    const d = UserRole.driver;
+    expect(redirect('/driver', role: d, mustChange: true), '/change-password');
+    expect(
+      redirect('/driver/trip', role: d, mustChange: true),
+      '/change-password',
+    );
+    expect(
+      redirect('/sign-in/driver', role: d, mustChange: true),
+      '/change-password',
+    );
+    expect(redirect('/splash', role: d, mustChange: true), '/change-password');
+    expect(redirect('/change-password', role: d, mustChange: true), isNull);
+    expect(redirect('/privacy', role: d, mustChange: true), isNull);
+  });
+
+  test('after the change, /change-password sends the driver home', () {
+    expect(redirect('/change-password', role: UserRole.driver), '/driver');
+  });
+
+  test('privacy gate still comes before the password gate', () {
+    expect(
+      redirect(
+        '/driver',
+        role: UserRole.driver,
+        privacy: false,
+        mustChange: true,
+      ),
+      '/welcome/privacy',
     );
   });
 

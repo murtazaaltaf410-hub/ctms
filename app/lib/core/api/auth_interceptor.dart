@@ -50,6 +50,8 @@ class AuthInterceptor extends QueuedInterceptor {
       return handler.next(err);
     }
     final code = ApiException.fromDio(err).code;
+    // A wrong current password on /auth/change-password is not a dead session.
+    if (code == ApiErrorCode.invalidCredentials) return handler.next(err);
     if (code != ApiErrorCode.tokenExpired) {
       _onAuthFailure(_failureReason(code));
       return handler.next(err);

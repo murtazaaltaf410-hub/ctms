@@ -26,8 +26,7 @@ void main() {
   // Every code in the API spec (p.6-7) with the status the server uses.
   const spec = {
     'VALIDATION_ERROR': (400, ApiErrorCode.validationError),
-    'OTP_INVALID': (400, ApiErrorCode.otpInvalid),
-    'OTP_EXPIRED': (400, ApiErrorCode.otpExpired),
+    'INVALID_CREDENTIALS': (401, ApiErrorCode.invalidCredentials),
     'TOKEN_EXPIRED': (401, ApiErrorCode.tokenExpired),
     'TOKEN_INVALID': (401, ApiErrorCode.tokenInvalid),
     'SESSION_REPLACED': (401, ApiErrorCode.sessionReplaced),

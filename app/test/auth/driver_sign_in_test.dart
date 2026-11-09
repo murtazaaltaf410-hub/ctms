@@ -1,158 +1,251 @@
 import 'package:ctms/auth/auth_controller.dart';
-import 'package:ctms/auth/phone_otp.dart';
+import 'package:ctms/auth/screens/change_password_screen.dart';
 import 'package:ctms/auth/screens/driver_sign_in_screen.dart';
-import 'package:ctms/core/api/api_exception.dart';
+import 'package:ctms/core/api/api_client.dart';
 import 'package:ctms/core/auth/token_store.dart';
 import 'package:ctms/core/env.dart';
 import 'package:ctms/core/models/models.dart';
 import 'package:ctms/core/storage/kv_store.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
 import '../helpers.dart';
 
-class MockPhoneOtpService extends Mock implements PhoneOtpService {}
+Map<String, dynamic> loginJson({bool mustChange = false}) => {
+  'access_token': 'acc',
+  'refresh_token': 'ref',
+  'user': userJson(id: 'd1', role: 'driver', name: 'Driver One'),
+  'must_change_password': mustChange,
+};
 
 void main() {
-  late MockPhoneOtpService otp;
+  late FakeAdapter adapter;
   late ProviderContainer container;
   late TokenStore tokens;
 
   setUp(() {
-    otp = MockPhoneOtpService();
+    adapter = FakeAdapter((_) => jsonBody(200, {}));
     tokens = TokenStore(MemoryKeyValueStore());
     container = ProviderContainer(
       overrides: [
         envProvider.overrideWithValue(testEnv),
-        phoneOtpServiceProvider.overrideWithValue(otp),
         tokenStoreProvider.overrideWithValue(tokens),
+        apiClientProvider.overrideWith(
+          (ref) => ApiClient(
+            baseUrl: testEnv.apiBaseUrl,
+            tokens: tokens,
+            onAuthFailure: ref.watch(authFailuresProvider).add,
+            adapter: adapter,
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
   });
 
-  Future<void> pumpScreen(WidgetTester tester) => tester.pumpWidget(
+  Future<void> pump(WidgetTester tester, Widget home) => tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: DriverSignInScreen()),
+      child: MaterialApp(home: home),
     ),
   );
 
-  Future<void> enterPhoneAndSend(WidgetTester tester) async {
-    await tester.enterText(find.byKey(const Key('phone-field')), '98765 43210');
-    await tester.tap(find.byKey(const Key('send-code')));
+  Future<void> signIn(WidgetTester tester, String id, String password) async {
+    await tester.enterText(find.byKey(const Key('identifier-field')), id);
+    await tester.enterText(find.byKey(const Key('password-field')), password);
+    await tester.tap(find.byKey(const Key('sign-in')));
     await tester.pumpAndSettle();
   }
 
-  Future<void> enterCodeAndVerify(WidgetTester tester, String code) async {
-    await tester.enterText(find.byKey(const Key('code-field')), code);
-    await tester.tap(find.byKey(const Key('verify-code')));
-    await tester.pumpAndSettle();
-  }
+  group('driver sign-in form', () {
+    testWidgets('userid + password → signed in as driver', (tester) async {
+      adapter.handler = (_) => jsonBody(200, loginJson());
+      await pump(tester, const DriverSignInScreen());
 
-  testWidgets('phone → code → signed in as driver', (tester) async {
-    when(() => otp.requestCode(any())).thenAnswer((_) async {});
-    when(() => otp.verify(any(), any())).thenAnswer(
-      (_) async => AuthTokens.fromJson({
-        'access_token': 'acc',
-        'refresh_token': 'ref',
-        'user': userJson(id: 'd1', role: 'driver', name: 'Driver One'),
-      }),
-    );
-    await pumpScreen(tester);
+      await signIn(tester, 'ravi.k', 'secret-pass');
 
-    await enterPhoneAndSend(tester);
-    verify(() => otp.requestCode('+919876543210')).called(1);
-    expect(find.text('Enter the code sent to +919876543210.'), findsOneWidget);
-
-    await enterCodeAndVerify(tester, '123456');
-    verify(() => otp.verify('+919876543210', '123456')).called(1);
-
-    final auth = container.read(authControllerProvider);
-    expect(auth.status, AuthStatus.signedIn);
-    expect(auth.role, UserRole.driver);
-    expect(tokens.accessToken, 'acc');
-    expect(await tokens.readRefreshToken(), 'ref');
-  });
-
-  testWidgets('invalid phone is caught before any request', (tester) async {
-    await pumpScreen(tester);
-    await tester.enterText(find.byKey(const Key('phone-field')), '12');
-    await tester.tap(find.byKey(const Key('send-code')));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('valid mobile number'), findsOneWidget);
-    verifyNever(() => otp.requestCode(any()));
-  });
-
-  testWidgets('wrong code shows OTP_INVALID in plain language', (tester) async {
-    when(() => otp.requestCode(any())).thenAnswer((_) async {});
-    when(() => otp.verify(any(), any()))
-        .thenThrow(const ApiException(ApiErrorCode.otpInvalid));
-    await pumpScreen(tester);
-    await enterPhoneAndSend(tester);
-    await enterCodeAndVerify(tester, '000000');
-
-    expect(
-      find.text('That code is not right. Check the SMS and try again.'),
-      findsOneWidget,
-    );
-    expect(container.read(authControllerProvider).isSignedIn, isFalse);
-  });
-
-  testWidgets('expired code asks for a new one (OTP_EXPIRED)', (tester) async {
-    when(() => otp.requestCode(any())).thenAnswer((_) async {});
-    when(() => otp.verify(any(), any()))
-        .thenThrow(const ApiException(ApiErrorCode.otpExpired));
-    await pumpScreen(tester);
-    await enterPhoneAndSend(tester);
-    await enterCodeAndVerify(tester, '111111');
-    expect(find.textContaining('has expired'), findsOneWidget);
-    expect(find.byKey(const Key('resend-code')), findsOneWidget);
-  });
-
-  testWidgets('429 shows the wait time and "contact an admin" (U4)', (
-    tester,
-  ) async {
-    when(() => otp.requestCode(any())).thenThrow(
-      const ApiException(
-        ApiErrorCode.rateLimited,
-        statusCode: 429,
-        retryAfter: Duration(seconds: 340),
-      ),
-    );
-    await pumpScreen(tester);
-    await enterPhoneAndSend(tester);
-
-    final error = tester.widget<Text>(find.byKey(const Key('otp-error')));
-    expect(error.data, contains('Try again in 6 minutes'));
-    expect(error.data, contains('contact the transport admin'));
-    expect(find.byKey(const Key('code-field')), findsNothing);
-  });
-
-  testWidgets('code must be 6 digits', (tester) async {
-    when(() => otp.requestCode(any())).thenAnswer((_) async {});
-    await pumpScreen(tester);
-    await enterPhoneAndSend(tester);
-    await enterCodeAndVerify(tester, '123');
-    expect(find.text('Enter the 6-digit code from the SMS.'), findsOneWidget);
-    verifyNever(() => otp.verify(any(), any()));
-  });
-
-  group('normalisePhone', () {
-    test('defaults to +91 and strips formatting', () {
-      expect(normalisePhone('98765 43210'), '+919876543210');
-      expect(normalisePhone('098765-43210'), '+919876543210');
-      expect(normalisePhone('+91 (98765) 43210'), '+919876543210');
-      expect(normalisePhone('0044 7123 123456'), '+447123123456');
+      final req = adapter.to('auth/login').single;
+      expect(req.data, {'identifier': 'ravi.k', 'password': 'secret-pass'});
+      expect(
+        req.headers.containsKey('Authorization'),
+        isFalse,
+        reason: 'login is unauthenticated',
+      );
+      final auth = container.read(authControllerProvider);
+      expect(auth.status, AuthStatus.signedIn);
+      expect(auth.role, UserRole.driver);
+      expect(auth.mustChangePassword, isFalse);
+      expect(tokens.accessToken, 'acc');
+      expect(await tokens.readRefreshToken(), 'ref');
     });
 
-    test('rejects garbage', () {
-      expect(normalisePhone(''), isNull);
-      expect(normalisePhone('12'), isNull);
-      expect(normalisePhone('+0123456789'), isNull);
-      expect(normalisePhone('abc'), isNull);
+    testWidgets('password is obscured and can be revealed', (tester) async {
+      await pump(tester, const DriverSignInScreen());
+      TextField field() =>
+          tester.widget<TextField>(find.byKey(const Key('password-field')));
+      expect(field().obscureText, isTrue);
+      await tester.tap(find.byKey(const Key('toggle-password')));
+      await tester.pump();
+      expect(field().obscureText, isFalse);
+    });
+
+    testWidgets('wrong password shows a plain message', (tester) async {
+      adapter.handler = (_) => errorBody(401, 'INVALID_CREDENTIALS');
+      await pump(tester, const DriverSignInScreen());
+
+      await signIn(tester, 'ravi.k', 'nope');
+
+      expect(find.text('Wrong userid or password.'), findsOneWidget);
+      expect(container.read(authControllerProvider).isSignedIn, isFalse);
+    });
+
+    testWidgets('429 shows the Retry-After wait', (tester) async {
+      adapter.handler = (_) => errorBody(
+        429,
+        'RATE_LIMITED',
+        headers: {
+          'retry-after': ['340'],
+        },
+      );
+      await pump(tester, const DriverSignInScreen());
+
+      await signIn(tester, 'ravi.k', 'x');
+
+      expect(find.textContaining('Try again in 6 minutes'), findsOneWidget);
+    });
+
+    testWidgets('offline shows the connection message', (tester) async {
+      adapter.handler = (o) => throw DioException.connectionError(
+        requestOptions: o,
+        reason: 'offline',
+      );
+      await pump(tester, const DriverSignInScreen());
+
+      await signIn(tester, 'ravi.k', 'x');
+
+      expect(find.textContaining('Cannot reach the server'), findsOneWidget);
+    });
+
+    testWidgets('empty fields are caught before any request', (tester) async {
+      await pump(tester, const DriverSignInScreen());
+      await tester.tap(find.byKey(const Key('sign-in')));
+      await tester.pump();
+      expect(find.byKey(const Key('sign-in-error')), findsOneWidget);
+      expect(adapter.requests, isEmpty);
+    });
+
+    testWidgets('temporary password sets the must-change flag', (tester) async {
+      adapter.handler = (_) => jsonBody(200, loginJson(mustChange: true));
+      await pump(tester, const DriverSignInScreen());
+
+      await signIn(tester, '+919876543210', 'Temp-Pass-1');
+
+      final auth = container.read(authControllerProvider);
+      expect(auth.isSignedIn, isTrue);
+      expect(auth.mustChangePassword, isTrue);
+      expect(await tokens.readMustChangePassword(), isTrue);
+    });
+  });
+
+  group('change password', () {
+    Future<void> signedInWithTemporary(WidgetTester tester) async {
+      adapter.handler = (_) => jsonBody(200, loginJson(mustChange: true));
+      await tester.runAsync(
+        () => container
+            .read(authControllerProvider.notifier)
+            .signInDriver('ravi.k', 'Temp-Pass-1'),
+      );
+    }
+
+    Future<void> fill(
+      WidgetTester tester, {
+      String current = 'Temp-Pass-1',
+      String next = 'Brand-new-pass',
+      String? confirm,
+    }) async {
+      await tester.enterText(
+        find.byKey(const Key('current-password')),
+        current,
+      );
+      await tester.enterText(find.byKey(const Key('new-password')), next);
+      await tester.enterText(
+        find.byKey(const Key('confirm-password')),
+        confirm ?? next,
+      );
+      await tester.tap(find.byKey(const Key('change-password-submit')));
+      await tester.pumpAndSettle();
+    }
+
+    String errorText(WidgetTester tester) => tester
+        .widget<Text>(find.byKey(const Key('change-password-error')))
+        .data!;
+
+    testWidgets('success posts both passwords and clears the flag', (
+      tester,
+    ) async {
+      await signedInWithTemporary(tester);
+      adapter.handler = (_) => jsonBody(204, null);
+      await pump(tester, const ChangePasswordScreen());
+
+      await fill(tester);
+
+      final req = adapter.to('auth/change-password').single;
+      expect(req.data, {
+        'current_password': 'Temp-Pass-1',
+        'new_password': 'Brand-new-pass',
+      });
+      expect(bearerOf(req), 'acc');
+      final auth = container.read(authControllerProvider);
+      expect(auth.isSignedIn, isTrue);
+      expect(auth.mustChangePassword, isFalse);
+      expect(await tester.runAsync(tokens.readMustChangePassword), isFalse);
+    });
+
+    testWidgets('client-side rules: min 8, differs, confirmed', (tester) async {
+      await signedInWithTemporary(tester);
+      await pump(tester, const ChangePasswordScreen());
+
+      await fill(tester, next: 'short', confirm: 'short');
+      expect(errorText(tester), contains('at least 8 characters'));
+
+      await fill(tester, next: 'Temp-Pass-1', confirm: 'Temp-Pass-1');
+      expect(errorText(tester), contains('different from the current'));
+
+      await fill(tester, next: 'Brand-new-pass', confirm: 'Other-new-pass');
+      expect(errorText(tester), contains('do not match'));
+
+      expect(adapter.to('auth/change-password'), isEmpty);
+      expect(container.read(authControllerProvider).mustChangePassword, isTrue);
+    });
+
+    testWidgets('wrong current password is reported, flag stays', (
+      tester,
+    ) async {
+      await signedInWithTemporary(tester);
+      adapter.handler = (_) => errorBody(401, 'INVALID_CREDENTIALS');
+      await pump(tester, const ChangePasswordScreen());
+
+      await fill(tester, current: 'not-it');
+
+      expect(find.text('The current password is wrong.'), findsOneWidget);
+      expect(container.read(authControllerProvider).mustChangePassword, isTrue);
+    });
+
+    test('flag survives a restart (restore reads it back)', () async {
+      await tokens.save(accessToken: 'stale', refreshToken: 'r1');
+      await tokens.saveMustChangePassword(true);
+      adapter.handler = (o) => switch (o.path) {
+        'auth/refresh' => jsonBody(200, {
+          'access_token': 'a2',
+          'refresh_token': 'r2',
+        }),
+        'me' => jsonBody(200, userJson(role: 'driver')),
+        _ => errorBody(404, 'NOT_FOUND'),
+      };
+      await container.read(authControllerProvider.notifier).restore();
+      expect(container.read(authControllerProvider).mustChangePassword, isTrue);
     });
   });
 }

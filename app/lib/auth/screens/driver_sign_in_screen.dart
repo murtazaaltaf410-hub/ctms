@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_exception.dart';
 import '../auth_controller.dart';
-import '../google_auth.dart';
-import '../phone_otp.dart';
 
-/// Driver phone sign-in: phone → `/auth/phone/request` → 6-digit code →
-/// `/auth/phone/verify` (ADR-7). The router leaves this screen on success.
+/// Driver sign-in: userid, email or phone plus the password from the transport
+/// office (ADR-10). The router leaves this screen on success, or holds the
+/// driver on the change-password screen while the password is temporary.
 class DriverSignInScreen extends ConsumerStatefulWidget {
   const DriverSignInScreen({super.key});
 
@@ -17,37 +15,43 @@ class DriverSignInScreen extends ConsumerStatefulWidget {
 }
 
 class _DriverSignInScreenState extends ConsumerState<DriverSignInScreen> {
-  final _phone = TextEditingController();
-  final _code = TextEditingController();
-  String? _sentTo;
+  final _identifier = TextEditingController();
+  final _password = TextEditingController();
   bool _busy = false;
+  bool _showPassword = false;
   String? _error;
 
   @override
   void dispose() {
-    _phone.dispose();
-    _code.dispose();
+    _identifier.dispose();
+    _password.dispose();
     super.dispose();
   }
 
-  /// U4: plain language, and "contact an admin" when sending is limited.
   static String messageFor(Object error) => switch (error) {
-    final ApiException e when e.code == ApiErrorCode.rateLimited =>
-      '${e.userMessage} If you still get no code, contact the transport admin.',
-    ApiException(code: ApiErrorCode.otpExpired) =>
-      'That code has expired. Tap "Send a new code".',
+    ApiException(code: ApiErrorCode.invalidCredentials) =>
+      'Wrong userid or password.',
     ApiException e => e.userMessage,
-    SignInFlowException e => e.message,
     _ => 'Something went wrong. Please try again.',
   };
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _submit() async {
+    final identifier = _identifier.text.trim();
+    final password = _password.text;
+    if (identifier.isEmpty || password.isEmpty) {
+      setState(
+        () => _error = 'Enter your userid, email or phone and password.',
+      );
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await action();
+      await ref
+          .read(authControllerProvider.notifier)
+          .signInDriver(identifier, password);
     } catch (e) {
       _error = messageFor(e);
     } finally {
@@ -55,38 +59,9 @@ class _DriverSignInScreenState extends ConsumerState<DriverSignInScreen> {
     }
   }
 
-  Future<void> _sendCode() async {
-    final phone = normalisePhone(_phone.text);
-    if (phone == null) {
-      setState(() => _error = 'Enter a valid mobile number, e.g. 98765 43210.');
-      return;
-    }
-    await _run(() async {
-      await ref.read(authControllerProvider.notifier).requestPhoneCode(phone);
-      _code.clear();
-      _sentTo = phone;
-    });
-  }
-
-  Future<void> _verify() async {
-    final phone = _sentTo;
-    final code = _code.text.trim();
-    if (phone == null) return;
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      setState(() => _error = 'Enter the 6-digit code from the SMS.');
-      return;
-    }
-    await _run(
-      () => ref
-          .read(authControllerProvider.notifier)
-          .verifyPhoneCode(phone, code),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final codeStep = _sentTo != null;
     return Scaffold(
       appBar: AppBar(title: const Text('Driver sign-in')),
       body: SafeArea(
@@ -95,67 +70,52 @@ class _DriverSignInScreenState extends ConsumerState<DriverSignInScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (!codeStep) ...[
-                const Text(
-                  'Enter the mobile number the transport office registered '
-                  'for you. We will send a 6-digit code.',
+              const Text(
+                'Sign in with the userid and password from the transport '
+                'office.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('identifier-field'),
+                controller: _identifier,
+                enabled: !_busy,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.username],
+                decoration: const InputDecoration(
+                  labelText: 'Userid, email or phone',
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  key: const Key('phone-field'),
-                  controller: _phone,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.phone,
-                  autofillHints: const [AutofillHints.telephoneNumber],
-                  decoration: const InputDecoration(
-                    labelText: 'Mobile number',
-                    prefixText: '+91 ',
-                    helperText: 'Other countries: start with +',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('password-field'),
+                controller: _password,
+                enabled: !_busy,
+                obscureText: !_showPassword,
+                autocorrect: false,
+                enableSuggestions: false,
+                autofillHints: const [AutofillHints.password],
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  suffixIcon: IconButton(
+                    key: const Key('toggle-password'),
+                    tooltip: _showPassword ? 'Hide password' : 'Show password',
+                    icon: Icon(
+                      _showPassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _showPassword = !_showPassword),
                   ),
-                  onSubmitted: (_) => _sendCode(),
                 ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  key: const Key('send-code'),
-                  onPressed: _busy ? null : _sendCode,
-                  child: const Text('Send code'),
-                ),
-              ] else ...[
-                Text('Enter the code sent to $_sentTo.'),
-                const SizedBox(height: 16),
-                TextField(
-                  key: const Key('code-field'),
-                  controller: _code,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.number,
-                  autofillHints: const [AutofillHints.oneTimeCode],
-                  maxLength: 6,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(labelText: '6-digit code'),
-                  onSubmitted: (_) => _verify(),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  key: const Key('verify-code'),
-                  onPressed: _busy ? null : _verify,
-                  child: const Text('Sign in'),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  key: const Key('resend-code'),
-                  onPressed: _busy ? null : _sendCode,
-                  child: const Text('Send a new code'),
-                ),
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => setState(() {
-                          _sentTo = null;
-                          _error = null;
-                        }),
-                  child: const Text('Use a different number'),
-                ),
-              ],
+                onSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('sign-in'),
+                onPressed: _busy ? null : _submit,
+                child: const Text('Sign in'),
+              ),
               if (_busy) ...[
                 const SizedBox(height: 16),
                 const Center(child: CircularProgressIndicator()),
@@ -164,15 +124,13 @@ class _DriverSignInScreenState extends ConsumerState<DriverSignInScreen> {
                 const SizedBox(height: 16),
                 Text(
                   _error!,
-                  key: const Key('otp-error'),
+                  key: const Key('sign-in-error'),
                   style: TextStyle(color: theme.colorScheme.error),
                 ),
               ],
               const SizedBox(height: 24),
               Text(
-                'Codes expire after a few minutes, and only a few codes can '
-                'be sent in a row. If no code arrives, contact the transport '
-                'admin.',
+                'Forgot your password? Ask the transport admin to reset it.',
                 style: theme.textTheme.bodySmall,
               ),
             ],

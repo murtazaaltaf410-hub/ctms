@@ -30,21 +30,124 @@ class AdminDriver {
     required this.id,
     required this.name,
     this.phone,
+    this.userid,
+    this.email,
     required this.active,
+    this.mustChangePassword = false,
+    this.locked = false,
     this.busId,
     this.busLabel,
+    this.employeeId,
+    this.licenceNo,
+    this.licenceExpiry,
+    this.address,
+    this.emergencyName,
+    this.emergencyPhone,
+    this.notes,
   });
   factory AdminDriver.fromJson(Json j) => AdminDriver(
     id: j['id'] as String,
     name: j['name'] as String,
     phone: j['phone'] as String?,
+    userid: j['userid'] as String?,
+    email: j['email'] as String?,
     active: j['active'] as bool,
+    mustChangePassword: j['must_change_password'] as bool? ?? false,
+    locked: j['locked'] as bool? ?? false,
     busId: j['bus_id'] as String?,
     busLabel: j['bus_label'] as String?,
+    employeeId: j['employee_id'] as String?,
+    licenceNo: j['licence_no'] as String?,
+    licenceExpiry: j['licence_expiry'] == null
+        ? null
+        : DateTime.parse(j['licence_expiry'] as String),
+    address: j['address'] as String?,
+    emergencyName: j['emergency_name'] as String?,
+    emergencyPhone: j['emergency_phone'] as String?,
+    notes: j['notes'] as String?,
   );
   final String id, name;
-  final String? phone, busId, busLabel;
-  final bool active;
+  final String? phone, userid, email, busId, busLabel;
+  final String? employeeId, licenceNo, address, emergencyName, emergencyPhone;
+  final String? notes;
+  final DateTime? licenceExpiry;
+  final bool active, mustChangePassword, locked;
+
+  /// What the list tile shows under the name: userid, email and phone.
+  String get contactLine {
+    final parts = [userid, email, phone].whereType<String>().toList();
+    return parts.isEmpty ? 'No sign-in details' : parts.join('  ');
+  }
+}
+
+/// Create/edit payload for `POST` / `PATCH /admin/drivers`. Blank optional
+/// fields are sent as null so an edit can clear them.
+class AdminDriverInput {
+  const AdminDriverInput({
+    required this.name,
+    this.userid,
+    this.email,
+    this.phone,
+    this.employeeId,
+    this.licenceNo,
+    this.licenceExpiry,
+    this.address,
+    this.emergencyName,
+    this.emergencyPhone,
+    this.notes,
+  });
+
+  final String name;
+  final String? userid, email, phone;
+  final String? employeeId, licenceNo, address, emergencyName, emergencyPhone;
+  final String? notes;
+  final DateTime? licenceExpiry;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'userid': userid,
+    'email': email,
+    'phone': phone,
+    'employee_id': employeeId,
+    'licence_no': licenceNo,
+    'licence_expiry': licenceExpiry == null ? null : isoDate(licenceExpiry!),
+    'address': address,
+    'emergency_name': emergencyName,
+    'emergency_phone': emergencyPhone,
+    'notes': notes,
+  };
+}
+
+String isoDate(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
+/// Same rule as the server: 3-40 characters, lower-case letters, digits, `.`,
+/// `_`, `-`, starting with a letter or digit. Returns the cleaned userid, or
+/// null when invalid.
+String? cleanUserid(String input) {
+  final v = input.trim().toLowerCase();
+  return RegExp(r'^[a-z0-9][a-z0-9._-]{2,39}$').hasMatch(v) ? v : null;
+}
+
+String? cleanEmail(String input) {
+  final v = input.trim().toLowerCase();
+  return v.length <= 254 && RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)
+      ? v
+      : null;
+}
+
+/// Normalises a typed phone number to E.164; Indian numbers by default.
+/// `98765 43210` gives `+919876543210`. Null when it cannot be valid.
+String? normalisePhone(String input, {String defaultCountryCode = '+91'}) {
+  var digits = input.replaceAll(RegExp(r'[\s\-().]'), '');
+  if (digits.startsWith('00')) digits = '+${digits.substring(2)}';
+  if (!digits.startsWith('+')) {
+    digits = digits.replaceFirst(RegExp('^0+'), '');
+    digits = '$defaultCountryCode$digits';
+  }
+  return RegExp(r'^\+[1-9][0-9]{6,14}$').hasMatch(digits) ? digits : null;
 }
 
 class AdminRoute {

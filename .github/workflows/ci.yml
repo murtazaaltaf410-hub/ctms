@@ -119,4 +119,4 @@ jobs:
   # Maps key, which are gitignored. To add one later, write the file from a secret
   # (base64) and build with:
   #   flutter build apk --flavor staging --dart-define=API_BASE_URL=... \
-  #     --dart-define=GOOGLE_SERVER_CLIENT_ID=... --dart-define=OTP_MODE=firebase
+  #     --dart-define=GOOGLE_SERVER_CLIENT_ID=...

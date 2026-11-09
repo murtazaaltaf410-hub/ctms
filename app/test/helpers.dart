@@ -10,7 +10,6 @@ const testEnv = Env(
   flavor: Flavor.staging,
   apiBaseUrl: 'https://api.test/api/v1/',
   wsUrl: 'wss://api.test/api/v1/ws/live',
-  otpMode: OtpMode.console,
   googleServerClientId: '',
 );
 

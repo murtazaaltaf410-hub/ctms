@@ -56,7 +56,7 @@ uv run pytest -q
 uv run uvicorn app.main:app --reload --port 8000    # /docs, /health, /api/v1/...
 ```
 
-In dev the console OTP provider prints driver codes in the server log (`DEV OTP for +91...: 123456`). The demo driver from the seed is `+910000000001`.
+Drivers sign in with a userid (or email/phone) and a password; an admin creates the account in the app (Fleet > Drivers) and receives a one-time temporary password. There is no OTP any more (ADR-10).
 
 The app (needs a Google Maps key in `app/android/local.properties`, see the credentials checklist):
 

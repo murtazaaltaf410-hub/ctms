@@ -24,20 +24,24 @@ class AuthRepository {
         ) as Json,
       );
 
-  /// Always 202 with an empty body, registered or not (TC2). 429 with
-  /// `Retry-After` after 3 requests per 10 min (U4).
-  Future<void> requestPhoneCode(String phone) =>
-      _api.post('auth/phone/request', body: {'phone': phone}, auth: false);
+  /// Driver sign-in with userid, email or phone plus password (ADR-10).
+  /// 401 `INVALID_CREDENTIALS` for every kind of failure, 429 when limited.
+  Future<LoginResult> signInWithPassword(
+    String identifier,
+    String password,
+  ) async => LoginResult.fromJson(
+    await _api.post(
+      'auth/login',
+      body: {'identifier': identifier, 'password': password},
+      auth: false,
+    ) as Json,
+  );
 
-  /// [otp] is the 6-digit code, or the Firebase ID token in firebase mode (ADR-7).
-  Future<AuthTokens> verifyPhone(String phone, String otp) async =>
-      AuthTokens.fromJson(
-        await _api.post(
-          'auth/phone/verify',
-          body: {'phone': phone, 'otp': otp},
-          auth: false,
-        ) as Json,
-      );
+  /// 204. Signs the driver's other sessions out server-side.
+  Future<void> changePassword(String current, String next) => _api.post(
+    'auth/change-password',
+    body: {'current_password': current, 'new_password': next},
+  );
 
   Future<AppUser> me() async => AppUser.fromJson(await _api.get('me') as Json);
 

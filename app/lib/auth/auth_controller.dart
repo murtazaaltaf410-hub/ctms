@@ -10,7 +10,6 @@ import '../push/push_service.dart';
 import 'auth_repository.dart';
 import 'email_password_auth.dart';
 import 'google_auth.dart';
-import 'phone_otp.dart';
 
 enum AuthStatus { unknown, signedOut, signedIn }
 
@@ -18,7 +17,13 @@ enum AuthStatus { unknown, signedOut, signedIn }
 enum SignOutReason { user, sessionReplaced, sessionEnded }
 
 class AuthState {
-  const AuthState._(this.status, {this.user, this.reason, this.restoreError});
+  const AuthState._(
+    this.status, {
+    this.user,
+    this.reason,
+    this.restoreError,
+    this.mustChangePassword = false,
+  });
 
   /// Starting up, or the server could not be reached yet ([restoreError]).
   const AuthState.unknown({ApiException? error})
@@ -27,13 +32,20 @@ class AuthState {
   const AuthState.signedOut({SignOutReason? reason})
     : this._(AuthStatus.signedOut, reason: reason);
 
-  const AuthState.signedIn(AppUser user)
-    : this._(AuthStatus.signedIn, user: user);
+  const AuthState.signedIn(AppUser user, {bool mustChangePassword = false})
+    : this._(
+        AuthStatus.signedIn,
+        user: user,
+        mustChangePassword: mustChangePassword,
+      );
 
   final AuthStatus status;
   final AppUser? user;
   final SignOutReason? reason;
   final ApiException? restoreError;
+
+  /// Driver on a temporary password: the router holds them on the change screen.
+  final bool mustChangePassword;
 
   bool get isSignedIn => status == AuthStatus.signedIn;
   UserRole? get role => user?.role;
@@ -69,7 +81,12 @@ class AuthController extends Notifier<AuthState> {
     try {
       await _repo.refresh();
       final user = await _repo.me();
-      _signedIn(user);
+      _signedIn(
+        user,
+        mustChangePassword:
+            user.role == UserRole.driver &&
+            await _tokens.readMustChangePassword(),
+      );
     } on ApiException catch (e) {
       if (e.code.isTransient || e.code == ApiErrorCode.unknown) {
         state = AuthState.unknown(error: e);
@@ -103,18 +120,28 @@ class AuthController extends Notifier<AuthState> {
   Future<void> createEmailAccount(String email, String password) =>
       ref.read(emailPasswordAuthSourceProvider).createAccount(email, password);
 
-  /// Driver step 1. [phone] must be E.164 (see [normalisePhone]).
-  Future<void> requestPhoneCode(String phone) =>
-      ref.read(phoneOtpServiceProvider).requestCode(phone);
+  /// Drivers: userid, email or phone plus the password from the office.
+  /// Throws [ApiException] (INVALID_CREDENTIALS, RATE_LIMITED, NETWORK).
+  Future<void> signInDriver(String identifier, String password) async {
+    final result = await _repo.signInWithPassword(identifier, password);
+    await _accept(result.tokens, mustChangePassword: result.mustChangePassword);
+  }
 
-  /// Driver step 2. Throws [ApiException] (OTP_INVALID, OTP_EXPIRED, ...).
-  Future<void> verifyPhoneCode(String phone, String code) async =>
-      _accept(await ref.read(phoneOtpServiceProvider).verify(phone, code));
+  /// `POST /auth/change-password`; on success the router lets the driver in.
+  Future<void> changePassword(String current, String next) async {
+    await _repo.changePassword(current, next);
+    await _tokens.saveMustChangePassword(false);
+    final user = state.user;
+    if (state.isSignedIn && user != null) state = AuthState.signedIn(user);
+  }
 
   /// Re-reads `GET /me` (e.g. after an admin re-links the driver's bus).
   Future<void> reloadUser() async {
     if (!state.isSignedIn) return;
-    state = AuthState.signedIn(await _repo.me());
+    state = AuthState.signedIn(
+      await _repo.me(),
+      mustChangePassword: state.mustChangePassword,
+    );
   }
 
   /// `POST /auth/logout` (removes the push token server-side), then local cleanup.
@@ -136,16 +163,20 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
-  Future<void> _accept(AuthTokens tokens) async {
+  Future<void> _accept(
+    AuthTokens tokens, {
+    bool mustChangePassword = false,
+  }) async {
     await _tokens.save(
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     );
-    _signedIn(tokens.user);
+    await _tokens.saveMustChangePassword(mustChangePassword);
+    _signedIn(tokens.user, mustChangePassword: mustChangePassword);
   }
 
-  void _signedIn(AppUser user) {
-    state = AuthState.signedIn(user);
+  void _signedIn(AppUser user, {bool mustChangePassword = false}) {
+    state = AuthState.signedIn(user, mustChangePassword: mustChangePassword);
     unawaited(ref.read(pushServiceProvider).register());
   }
 

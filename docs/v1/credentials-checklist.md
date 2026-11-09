@@ -154,7 +154,7 @@ APP_UPDATE_URL=            # e.g. the Play testing link or direct APK link
 | GitHub → repo → Settings → Secrets and variables → Actions → **Variables** | `KEEPALIVE_URLS` (not secret) |
 | GitHub → Actions **Secrets** (P7, when the app CI job is enabled) | `GOOGLE_SERVICES_JSON_STAGING` (base64 of the file) |
 | `app/android/app/google-services.json` (gitignored) | Firebase Android config per flavour |
-| App `--dart-define`s (P7) | `API_BASE_URL` (including `/api/v1`, e.g. `https://ctms-api.onrender.com/api/v1`), `WS_URL` (optional), `OTP_MODE=console\|firebase` (must match the server's `OTP_PROVIDER`), `GOOGLE_SERVER_CLIENT_ID` (the Web client ID) |
+| App `--dart-define`s (P7) | `API_BASE_URL` (including `/api/v1`, e.g. `https://ctms-api.onrender.com/api/v1`), `WS_URL` (optional), `GOOGLE_SERVER_CLIENT_ID` (the Web client ID) |
 | `app/android/local.properties` or env (P7) | `MAPS_API_KEY_STAGING`, `MAPS_API_KEY_PROD` (fallback `MAPS_API_KEY`) |
 | Your password manager | Supabase DB password, service-account JSON, `JWT_SECRET` per environment |
 | Local `server/.env` (gitignored, dev only) | `APP_ENV=dev` and optionally a dev `DATABASE_URL`. Nothing else is required in dev |

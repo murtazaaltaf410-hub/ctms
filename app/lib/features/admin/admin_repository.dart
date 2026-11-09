@@ -55,16 +55,26 @@ class AdminRepository {
   );
   Future<void> updateBus(String id, Map<String, dynamic> changes) =>
       _api.patch('admin/buses/$id', body: changes);
-  Future<void> createDriver({
-    required String name,
-    required String phone,
-    String? busId,
-  }) => _api.post(
-    'admin/drivers',
-    body: {'name': name, 'phone': phone, 'active': true, 'bus_id': ?busId},
-  );
+
+  /// Returns the one-time temporary password.
+  Future<String> createDriver(AdminDriverInput input) async {
+    final body = await _api.post(
+      'admin/drivers',
+      body: {...input.toJson(), 'active': true},
+    ) as Json;
+    return body['temporary_password'] as String;
+  }
+
   Future<void> updateDriver(String id, Map<String, dynamic> changes) =>
       _api.patch('admin/drivers/$id', body: changes);
+
+  /// New temporary password (shown once); unlocks the account and signs the
+  /// driver out everywhere.
+  Future<String> resetDriverPassword(String id) async {
+    final body = await _api.post('admin/drivers/$id/reset-password') as Json;
+    return body['temporary_password'] as String;
+  }
+
   Future<AdminRoute> createRoute({
     required String name,
     required List<Map<String, Object>> stops,

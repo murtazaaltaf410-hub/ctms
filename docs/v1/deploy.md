@@ -99,7 +99,6 @@ Build the app with the Render URL (it must end in `/api/v1`):
 cd app
 flutter build apk --flavor staging --release \
   --dart-define=API_BASE_URL=https://<your-service>.onrender.com/api/v1 \
-  --dart-define=OTP_MODE=firebase \
   --dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>
 ```
 

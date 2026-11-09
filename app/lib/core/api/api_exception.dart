@@ -3,8 +3,7 @@ import 'package:dio/dio.dart';
 /// Every error code in the API spec (p.6-7), plus two client-side codes.
 enum ApiErrorCode {
   validationError('VALIDATION_ERROR'),
-  otpInvalid('OTP_INVALID'),
-  otpExpired('OTP_EXPIRED'),
+  invalidCredentials('INVALID_CREDENTIALS'),
   tokenExpired('TOKEN_EXPIRED'),
   tokenInvalid('TOKEN_INVALID'),
   sessionReplaced('SESSION_REPLACED'),
@@ -101,10 +100,7 @@ class ApiException implements Exception {
   String get userMessage => switch (code) {
     ApiErrorCode.validationError =>
       'Something in the form is missing or not valid. Check it and try again.',
-    ApiErrorCode.otpInvalid =>
-      'That code is not right. Check the SMS and try again.',
-    ApiErrorCode.otpExpired =>
-      'That code has expired. Ask for a new code and try again.',
+    ApiErrorCode.invalidCredentials => 'Wrong userid or password.',
     ApiErrorCode.tokenExpired || ApiErrorCode.tokenInvalid =>
       'Your session has ended. Please sign in again.',
     ApiErrorCode.sessionReplaced =>

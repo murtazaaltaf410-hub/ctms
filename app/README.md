@@ -16,7 +16,6 @@ Runtime values come from `--dart-define`:
 |---|---|---|
 | `API_BASE_URL` | `https://ctms-staging.example.org/api/v1` | Includes `/api/v1`. Default `http://10.0.2.2:8000/api/v1` (emulator → host) |
 | `WS_URL` | `wss://ctms-staging.example.org/api/v1/ws/live` | Optional; derived from `API_BASE_URL` when empty |
-| `OTP_MODE` | `console` \| `firebase` | Must match the server's `OTP_PROVIDER` (ADR-7). Default `console` |
 | `GOOGLE_SERVER_CLIENT_ID` | `1234-abc.apps.googleusercontent.com` | The OAuth **web** client ID listed in the server's `GOOGLE_OAUTH_CLIENT_IDS` |
 
 ```bash
@@ -30,13 +29,11 @@ flutter run --flavor staging -t lib/main_staging.dart \
 # Staging against the deployed staging server
 flutter run --flavor staging -t lib/main_staging.dart \
   --dart-define=API_BASE_URL=https://<staging-host>/api/v1 \
-  --dart-define=OTP_MODE=console \
   --dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>
 
 # Production release
 flutter build apk --release --flavor prod -t lib/main_prod.dart \
   --dart-define=API_BASE_URL=https://<prod-host>/api/v1 \
-  --dart-define=OTP_MODE=firebase \
   --dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>
 ```
 
@@ -53,9 +50,9 @@ MAPS_API_KEY_PROD=AIza...
 
 Restrict each key to *Android apps* with the package name and SHA-1 (debug and release) of its flavour.
 
-## Firebase (push, optional phone auth)
+## Firebase (push)
 
-Until Firebase is configured, `lib/firebase_options_staging.dart` and `lib/firebase_options_prod.dart` are placeholders that return `null`. The app then starts without Firebase: push registration is skipped and `OTP_MODE=firebase` falls back to the server code. To configure (once per flavour, from `app/`):
+Until Firebase is configured, `lib/firebase_options_staging.dart` and `lib/firebase_options_prod.dart` are placeholders that return `null`. The app then starts without Firebase: push registration is skipped. To configure (once per flavour, from `app/`):
 
 ```bash
 dart pub global activate flutterfire_cli
@@ -74,7 +71,7 @@ flutterfire configure --project=<prod-project-id> \
 
 - `flutterfire` may also write `android/app/google-services.json` and add the Google Services gradle plugin. The JSON is gitignored; with two flavours, place each one under `android/app/src/<flavor>/google-services.json`.
 - Commit the regenerated `firebase_options_*.dart`. They contain only public client identifiers.
-- Add the SHA-1 and SHA-256 of the debug and release keystores to each Firebase Android app (`cd android && ./gradlew signingReport`). Google sign-in and phone auth need them.
+- Add the SHA-1 and SHA-256 of the debug and release keystores to each Firebase Android app (`cd android && ./gradlew signingReport`). Google sign-in needs them.
 - Phone auth: enable it in the Firebase console, restrict the SMS region to India, and add test numbers for development.
 
 ## Layout and conventions

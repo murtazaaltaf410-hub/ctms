@@ -71,7 +71,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       }
     } on ApiException catch (e) {
       _error = e.code == ApiErrorCode.forbiddenRole
-          ? 'Drivers sign in with their phone number.'
+          ? 'Drivers sign in with the userid and password from the transport office.'
           : e.userMessage;
     } on SignInFlowException catch (e) {
       _error = e.message;

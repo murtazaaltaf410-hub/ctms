@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'auth/auth_controller.dart';
+import 'auth/screens/change_password_screen.dart';
 import 'auth/screens/driver_sign_in_screen.dart';
 import 'auth/screens/sign_in_screen.dart';
 import 'auth/screens/splash_screen.dart';
@@ -22,6 +23,9 @@ abstract final class AppRoutes {
   static const update = '/update';
   static const signIn = '/sign-in';
   static const driverSignIn = '/sign-in/driver';
+
+  /// Forced for drivers on a temporary password.
+  static const changePassword = '/change-password';
 
   /// First-run privacy gate after sign-in.
   static const privacyGate = '/welcome/privacy';
@@ -50,6 +54,7 @@ class RedirectInput {
     this.role,
     this.privacyAccepted,
     this.updateRequired = false,
+    this.mustChangePassword = false,
   });
 
   final String location;
@@ -59,12 +64,15 @@ class RedirectInput {
   /// Null while the consent store is loading.
   final bool? privacyAccepted;
   final bool updateRequired;
+
+  /// Driver on a temporary password; held on [AppRoutes.changePassword].
+  final bool mustChangePassword;
 }
 
 bool _under(String location, String prefix) =>
     location == prefix || location.startsWith('$prefix/');
 
-/// Route guard: update gate → session → privacy gate → role home.
+/// Route guard: update gate → session → privacy gate → password gate → role home.
 String? appRedirect(RedirectInput i) {
   final loc = i.location;
   String? go(String target) => loc == target ? null : target;
@@ -84,12 +92,17 @@ String? appRedirect(RedirectInput i) {
     return _under(loc, AppRoutes.privacy) ? null : go(AppRoutes.privacyGate);
   }
 
+  if (i.mustChangePassword) {
+    return _under(loc, AppRoutes.privacy) ? null : go(AppRoutes.changePassword);
+  }
+
   final home = AppRoutes.home(role);
   const entry = [
     '/',
     AppRoutes.splash,
     AppRoutes.update,
     AppRoutes.privacyGate,
+    AppRoutes.changePassword,
   ];
   if (entry.contains(loc) || _under(loc, AppRoutes.signIn)) return home;
   final otherRoleArea = UserRole.values
@@ -114,6 +127,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       location: location,
       status: auth.status,
       role: auth.role,
+      mustChangePassword: auth.mustChangePassword,
       privacyAccepted: consents.isLoading
           ? null
           : ref
@@ -145,6 +159,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, _) => const DriverSignInScreen(),
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.changePassword,
+        builder: (_, _) => const ChangePasswordScreen(),
       ),
       GoRoute(
         path: AppRoutes.privacyGate,
