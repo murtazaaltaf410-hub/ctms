@@ -1,0 +1,69 @@
+# Render Blueprint for the CTMS API (server/). Docs: docs/v1/deploy.md
+#
+# Free web service, built from server/Dockerfile with the REPO ROOT as the
+# Docker context (the image runs supabase/migrations/*.sql through Alembic).
+#
+# Free instances spin down after ~15 minutes without inbound traffic. Live bus
+# state, the WebSocket hub, rate limits and jobs are in-process, so a sleep wipes
+# them. An EXTERNAL pinger (UptimeRobot / cron-job.org, see deploy.md
+# "Keep it awake") must hit /health at least every 10 minutes during service hours.
+#
+# Exactly one instance (TRD): never raise numInstances or add --workers.
+#
+# Secrets are `sync: false`: Render prompts for them in the dashboard when the
+# Blueprint is first applied. They are never stored in this file.
+# One Blueprint = one environment. For staging, create a second web service (or
+# a second Blueprint on a `staging` branch) with its own values.
+
+services:
+  - type: web
+    name: ctms-api
+    runtime: docker
+    plan: free
+    region: singapore # nearest to Supabase Mumbai that Render offers
+    branch: main
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    numInstances: 1
+    autoDeployTrigger: commit
+    # Only rebuild when the server or the SQL changes (not on app/ or docs/ commits).
+    buildFilter:
+      paths:
+        - server/**
+        - supabase/migrations/**
+        - render.yaml
+      ignoredPaths:
+        - server/tests/**
+        - server/**/*.md
+    envVars:
+      - key: APP_ENV
+        value: production # use "staging" on a staging service
+      - key: TRUST_PROXY
+        value: "true"
+      - key: OTP_PROVIDER
+        value: firebase # `console` is refused outside dev (ADR-7)
+      - key: PUSH_PROVIDER
+        value: fcm
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DB_POOL_MAX_SIZE
+        value: "5" # Supabase free session pooler has a low client limit
+      # --- secrets: paste in the Render dashboard ---
+      - key: DATABASE_URL # Supabase SHARED POOLER, session mode, port 5432 (IPv4)
+        sync: false
+      - key: JWT_SECRET # 48+ random chars, different per environment
+        generateValue: true
+      - key: GOOGLE_OAUTH_CLIENT_IDS # Web client ID (+ Android client IDs), comma-separated
+        sync: false
+      - key: FCM_CREDENTIALS # Firebase service-account JSON, ONE line, not base64
+        sync: false
+      - key: GOOGLE_DIRECTIONS_KEY # Routes API key, server only, no Android restriction
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      # --- optional ---
+      - key: MIN_APP_VERSION
+        value: 1.0.0
+      - key: APP_UPDATE_URL
+        sync: false

@@ -2,7 +2,7 @@
 
 Every account, key and file CTMS needs, where to get it, and where it goes. Follow the steps in order. Do everything **twice**, once for **staging** and once for **production**. The runbook requires separate databases, Firebase projects and Google Cloud projects so a test never touches real data. Start with staging. Production can wait until the launch gate.
 
-Secrets go in the **Railway dashboard** (server) or in **gitignored files** (app). Never commit them, and never paste them into chat or issues.
+Secrets go in the **Render dashboard** (server) or in **gitignored files** (app). Never commit them, and never paste them into chat or issues.
 
 ## Summary table
 
@@ -19,7 +19,7 @@ Secrets go in the **Railway dashboard** (server) or in **gitignored files** (app
 | 9 | Maps SDK for Android key | Google Cloud → Credentials → API key, restricted to package + SHA-1 and to *Maps SDK for Android* | App build: `app/android/local.properties` or env `MAPS_API_KEY_STAGING` / `MAPS_API_KEY_PROD` (fallback `MAPS_API_KEY`). **Never on the server** | app | restricted client key |
 | 10 | Routes API key (server only) | Google Cloud → Credentials → API key, restricted to *Routes API* | `GOOGLE_DIRECTIONS_KEY` | server | **yes** |
 | 11 | `APP_ENV` | Fixed value | `staging` or `production` | server | no |
-| 12 | `OTP_PROVIDER` | Decision (ADR-7) | `firebase` on Railway (`console` is refused outside dev) | server | no |
+| 12 | `OTP_PROVIDER` | Decision (ADR-7) | `firebase` on Render (`console` is refused outside dev) | server | no |
 | 13 | `PUSH_PROVIDER` | Fixed value | `fcm` (or leave unset: it defaults to `fcm` outside dev) | server | no |
 | 14 | `MIN_APP_VERSION`, `APP_UPDATE_URL` | You, per release | env vars (optional) | server → app via `GET /api/v1/config` | no |
 
@@ -36,7 +36,7 @@ Follow [supabase-setup.md](supabase-setup.md). Summary:
    *Optional:* the server also runs these files on deploy (Alembic). It skips `0001` if the schema already exists, so running them by hand first is safe.
 3. **Connect** → **Session pooler** (port **5432**, IPv4) → copy the URI and fill in the password → that is `DATABASE_URL`.
    - Not the Transaction pooler (6543): the server uses prepared statements.
-   - Not "Direct connection" on the free plan: it is IPv6-only and Railway's outbound traffic is IPv4.
+   - Not "Direct connection" on the free plan: it is IPv6-only and Render's outbound traffic is IPv4.
 4. Backups: on the free plan, assume Supabase backups **cannot be restored by you**. The weekly `pg_dump` in [runbook.md](runbook.md#backups) is the backup.
 
 ## 2. `SEED_ADMIN_EMAIL`
@@ -61,12 +61,12 @@ The server refuses to start outside dev with fewer than 32 characters. If you ro
 2. **Billing plan.**
    - Push (FCM) is free on the **Spark** plan.
    - **Phone sign-in by SMS needs the Blaze (pay-as-you-go) plan.** Under ADR-7 the drivers use the dev console OTP for now, so you **do not need Blaze yet**.
-   - Before launch, decide between Firebase phone auth (Blaze plus SMS cost) and an SMS provider. Either way, `OTP_PROVIDER` must not be `console` on Railway (the server refuses to start).
+   - Before launch, decide between Firebase phone auth (Blaze plus SMS cost) and an SMS provider. Either way, `OTP_PROVIDER` must not be `console` on Render (the server refuses to start).
    - *Phone numbers for testing* (Authentication → Sign-in method → Phone) work without sending real SMS.
 3. **Service account → `FCM_CREDENTIALS`.**
    1. Project settings (gear) → **Service accounts** → **Firebase Admin SDK** → **Generate new private key** → this downloads a `.json` file.
    2. `config.py` accepts **either** the JSON text itself (it must start with `{`) **or** a file path. It does **not** accept base64.
-   3. On Railway, paste the JSON as **one line**. To minify it:
+   3. On Render, paste the JSON as **one line**. To minify it:
       ```bash
       python -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" ctms-staging-firebase-adminsdk.json
       ```
@@ -128,8 +128,8 @@ ADR-8: polylines come from the **Routes API** (`computeRoutes`). The env var kee
 1. **Library** → enable **Routes API**. The legacy "Directions API" is not needed.
 2. **Credentials → Create credentials → API key** → **Edit**:
    - **API restrictions:** **Routes API** only.
-   - **Application restrictions:** *None*. Railway has no fixed outbound IP on the standard plans, so an IP restriction would break it. The API restriction plus keeping the key secret is the protection.
-3. Put it in Railway as `GOOGLE_DIRECTIONS_KEY`. **Never** put this key in the app.
+   - **Application restrictions:** *None*. Render free has no fixed outbound IP, so an IP restriction would break it. The API restriction plus keeping the key secret is the protection.
+3. Put it in Render as `GOOGLE_DIRECTIONS_KEY`. **Never** put this key in the app.
 4. It is called only when an admin changes a route's stops. Usage is tiny, but add a quota cap anyway (Routes API → Quotas, for example 500 requests/day).
 
 ## 9. Fixed values
@@ -138,23 +138,23 @@ ADR-8: polylines come from the **Routes API** (`computeRoutes`). The env var kee
 APP_ENV=staging            # production for the prod environment
 OTP_PROVIDER=firebase      # ADR-7; 'console' only works with APP_ENV=dev/test
 PUSH_PROVIDER=fcm          # or leave unset (fcm outside dev)
-TRUST_PROXY=true           # behind Railway's proxy (already set in the Docker image)
+TRUST_PROXY=true           # behind Render's proxy (already set in the Docker image)
 ALERT_RADIUS_M=500         # default; the admin setting overrides it
 MIN_APP_VERSION=1.0.0      # raise to force old builds to update
 APP_UPDATE_URL=            # e.g. the Play testing link or direct APK link
 ```
 
-> **Driver sign-in on Railway today:** `OTP_PROVIDER=firebase` needs the app's Firebase phone-auth flow (P7) and, for real SMS, the Blaze plan. Until then, test driver sign-in **locally** (`APP_ENV=dev`, console OTP). Staging accepts driver sign-in only through Firebase test phone numbers once the app supports it.
+> **Driver sign-in on Render today:** `OTP_PROVIDER=firebase` needs the app's Firebase phone-auth flow (P7) and, for real SMS, the Blaze plan. Until then, test driver sign-in **locally** (`APP_ENV=dev`, console OTP). Staging accepts driver sign-in only through Firebase test phone numbers once the app supports it.
 
 ## 10. Where each value ends up
 
 | Place | Values |
 |---|---|
-| Railway → service → Variables (per environment) | `APP_ENV`, `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_IDS`, `FCM_CREDENTIALS`, `GOOGLE_DIRECTIONS_KEY`, `SEED_ADMIN_EMAIL`, `OTP_PROVIDER`, `PUSH_PROVIDER`, optional `ALERT_RADIUS_M`, `MIN_APP_VERSION`, `APP_UPDATE_URL`, `LOG_LEVEL` |
+| Render → service → Environment (per environment) | `APP_ENV`, `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_IDS`, `FCM_CREDENTIALS`, `GOOGLE_DIRECTIONS_KEY`, `SEED_ADMIN_EMAIL`, `OTP_PROVIDER`, `PUSH_PROVIDER`, optional `ALERT_RADIUS_M`, `MIN_APP_VERSION`, `APP_UPDATE_URL`, `LOG_LEVEL` |
 | GitHub → repo → Settings → Secrets and variables → Actions → **Variables** | `KEEPALIVE_URLS` (not secret) |
 | GitHub → Actions **Secrets** (P7, when the app CI job is enabled) | `GOOGLE_SERVICES_JSON_STAGING` (base64 of the file) |
 | `app/android/app/google-services.json` (gitignored) | Firebase Android config per flavour |
-| App `--dart-define`s (P7) | `API_BASE_URL` (including `/api/v1`, e.g. `https://ctms-staging.up.railway.app/api/v1`), `WS_URL` (optional), `OTP_MODE=console\|firebase` (must match the server's `OTP_PROVIDER`), `GOOGLE_SERVER_CLIENT_ID` (the Web client ID) |
+| App `--dart-define`s (P7) | `API_BASE_URL` (including `/api/v1`, e.g. `https://ctms-api.onrender.com/api/v1`), `WS_URL` (optional), `OTP_MODE=console\|firebase` (must match the server's `OTP_PROVIDER`), `GOOGLE_SERVER_CLIENT_ID` (the Web client ID) |
 | `app/android/local.properties` or env (P7) | `MAPS_API_KEY_STAGING`, `MAPS_API_KEY_PROD` (fallback `MAPS_API_KEY`) |
 | Your password manager | Supabase DB password, service-account JSON, `JWT_SECRET` per environment |
 | Local `server/.env` (gitignored, dev only) | `APP_ENV=dev` and optionally a dev `DATABASE_URL`. Nothing else is required in dev |

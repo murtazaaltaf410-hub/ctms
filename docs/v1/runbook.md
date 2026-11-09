@@ -11,8 +11,8 @@ The runbook asks you to watch six numbers daily. This is where each one comes fr
 | **Active buses** | `GET /api/v1/buses/live` (any signed-in user): the number of items. Admin app live monitor (P8). SQL: `select count(*) from trips where ended_at is null;` | Matches the buses that should be running |
 | **Age of each bus's last fix** | `GET /api/v1/buses/live`: `last_fix_at`, `state` (`live` / `stopped` / `stale` > 30 s / `offline` > 120 s) and `clock_skew_s` | `live`/`stopped`. Pilot target: 80 % of trip time with a fix under 10 s old |
 | **Rejected fixes per hour** | SQL (Supabase SQL editor): `select date_trunc('hour', received_at) h, reason, count(*) from rejected_fixes where received_at > now() - interval '1 day' group by 1,2 order by 1 desc;` | Mostly `ACCURACY_TOO_LOW`, low single digits per bus-hour |
-| **Push failures** | Railway logs, logger `ctms.push`: `"push … failed for N token(s) after one retry"`, `"deleted N invalid push token(s)"`, `"fcm send_each failed"` | Rare; invalid tokens are cleaned up automatically (N9) |
-| **Sign-in failures** | Railway logs, logger `ctms.request`: `path` starting `/api/v1/auth/` with `status` 401/429. Successful sign-ins are in `audit_log` (`auth.google.sign_in`, `auth.phone.verify`) | Few 401s; a spike of 401 on `/auth/google` = client ID mismatch |
+| **Push failures** | Render logs, logger `ctms.push`: `"push … failed for N token(s) after one retry"`, `"deleted N invalid push token(s)"`, `"fcm send_each failed"` | Rare; invalid tokens are cleaned up automatically (N9) |
+| **Sign-in failures** | Render logs, logger `ctms.request`: `path` starting `/api/v1/auth/` with `status` 401/429. Successful sign-ins are in `audit_log` (`auth.google.sign_in`, `auth.phone.verify`) | Few 401s; a spike of 401 on `/auth/google` = client ID mismatch |
 | **Google Maps usage vs quota** | Google Cloud console → APIs & Services → Maps SDK for Android / Routes API → Metrics & Quotas; Billing → Budgets | Well under quota; budget alert not triggered |
 
 Also: the **uptime check** is the Keep-alive workflow (GitHub → Actions). A red run means `/health` failed, and GitHub emails the repo admins.
@@ -21,7 +21,7 @@ Reports for the pilot-success metrics: `GET /api/v1/admin/reports/summary` and t
 
 ## Logs
 
-- **Format.** Outside dev, the server writes **one JSON object per line**: `ts`, `level`, `logger`, `msg`, plus fields. Railway → service → *Logs* lets you search and filter (for example `@logger:ctms.request @status:500`, or plain text search). Log retention depends on the Railway plan. Check that it is at least 7 days (the runbook's "searchable for 7 days"); otherwise add a log drain.
+- **Format.** Outside dev, the server writes **one JSON object per line**: `ts`, `level`, `logger`, `msg`, plus fields. Render → service → *Logs* lets you search and filter (for example `@logger:ctms.request @status:500`, or plain text search). Render free keeps logs only for a short time (check the current limit). The runbook wants them searchable for 7 days, so add a log drain.
 - **Request lines** (logger `ctms.request`):
   - Fields: `method`, `path` (**never the query string**), `status`, `duration_ms`, `request_id`.
   - Every response carries `X-Request-ID`. A client may send its own (letters, digits, `.`, `_`, `-`, max 64), which ties app reports to server lines.
@@ -36,7 +36,7 @@ Reports for the pilot-success metrics: `GET /api/v1/admin/reports/summary` and t
 - **Error tracking (Sentry): optional, not installed.** To add it later:
   1. `uv add sentry-sdk`
   2. In `create_app`, `sentry_sdk.init(dsn=..., environment=config.app_env, send_default_pii=False, traces_sample_rate=0)`, with a `before_send` hook that applies `redact()` to the message and breadcrumbs.
-  3. Set `SENTRY_DSN` on Railway.
+  3. Set `SENTRY_DSN` on Render.
   4. Use a separate DSN per environment.
 
   The Flutter app would use `sentry_flutter` (P7). Until then, unhandled errors are logged as `"unhandled error on <METHOD> <path>"` with a redacted traceback.
@@ -48,7 +48,7 @@ Reports for the pilot-success metrics: `GET /api/v1/admin/reports/summary` and t
 - **Cron (UTC):** `*/10 1-13 * * 1-6`, which is **06:30–19:29 IST, Monday–Saturday** (IST = UTC + 5:30).
 - **Service hours are an assumption.** The PRD says they are "set with the university". When the university confirms them, convert to UTC and edit the cron. For example, 07:00–18:00 IST → `*/10 1-12 * * 1-6`. Cron hours are whole hours, so round outward.
 - GitHub may delay scheduled runs by several minutes. It also **disables schedules after 60 days with no commits**: re-enable in Actions if that happens.
-- Railway doesn't sleep, so here the ping is mainly the uptime check. On Render free it also keeps the service awake.
+- On Render free the service sleeps after ~15 minutes idle, so the **external pinger** (UptimeRobot / cron-job.org, see deploy.md "Keep it awake") is what keeps it awake; this GitHub workflow is only a backup check.
 
 ## Backups
 
@@ -114,7 +114,7 @@ First steps for the symptoms in the runbook's table, with the concrete checks:
 | Symptom | Check first |
 |---|---|
 | A running bus is missing on students' maps | `GET /buses/live`: is the bus there, and what is its `state`? `select * from trips where ended_at is null;` to see whether a trip was started. Call the driver (T1, T5, T7) |
-| Positions arrive late | `/health` latency. Railway metrics (CPU/RAM). Keep-alive runs green? `clock_skew_s` on `/buses/live`. Logs: `"live writer flush failed"` means the DB is slow or down (N5; live tracking continues from memory) |
+| Positions arrive late | `/health` latency. Render metrics (CPU/RAM). Keep-alive runs green? `clock_skew_s` on `/buses/live`. Logs: `"live writer flush failed"` means the DB is slow or down (N5; live tracking continues from memory) |
 | No alerts arriving | The student's alert setting and push token; `ctms.push` log lines; FCM credentials valid (A5–A7, N9) |
 | Students cannot sign in | `/health`, then `GOOGLE_OAUTH_CLIENT_IDS` contains the app's Web client ID for that environment. Look for 401s on `/api/v1/auth/google` |
 | Driver cannot sign in | The driver record is active and has the right phone (admin app); OTP limits (3 sends per 10 min, `RATE_LIMITED` 429); the `OTP_PROVIDER` setup |

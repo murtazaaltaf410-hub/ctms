@@ -6,6 +6,10 @@
 # window is 01:00-13:59 (= 06:30-19:29 IST). Edit the cron when the university
 # confirms the hours (docs/v1/runbook.md "Keep-alive").
 #
+# This is the BACKUP pinger. Render free sleeps after ~15 minutes idle and GitHub
+# often starts scheduled runs late, so the primary keep-alive is an external
+# pinger (UptimeRobot / cron-job.org, docs/v1/deploy.md "Keep it awake").
+#
 # Setup: repository Settings -> Secrets and variables -> Actions -> Variables:
 #   KEEPALIVE_URLS = "https://<prod-host>/health https://<staging-host>/health"
 # A failed ping fails the run, and GitHub emails the repo admins: that is the

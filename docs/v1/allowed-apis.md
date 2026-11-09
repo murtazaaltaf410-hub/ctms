@@ -48,7 +48,7 @@ Entries marked **UNCONFIRMED** could not be confirmed through context7. Verify t
 | Errors | `asyncpg.UniqueViolationError` (`.constraint_name`), `asyncpg.ForeignKeyViolationError`, `asyncpg.PostgresConnectionError`; also `OSError`/`TimeoutError` on network loss → map to 503 `DB_UNAVAILABLE` | asyncpg _autodocs/errors.md |
 | PgBouncer/Supavisor | With the transaction pooler (port 6543), pass `statement_cache_size=0` and never call `con.prepare()`. With the session pooler or a direct connection (5432) the default cache is fine | asyncpg docs/faq.rst; supabase.com/docs/guides/database/connecting-to-postgres |
 
-**Supabase connection string** — ctx7 `/websites/supabase_guides`, supabase.com/docs/guides/database/connecting-to-postgres. A direct connection is **IPv6-only on the free plan**. Render and Railway need IPv4, so use the **Shared pooler, session mode** (`aws-N-REGION.pooler.supabase.com:5432`). Do not use the transaction pooler for the long-running server. Keep `max_size` small because the pooler limits clients.
+**Supabase connection string** — ctx7 `/websites/supabase_guides`, supabase.com/docs/guides/database/connecting-to-postgres. A direct connection is **IPv6-only on the free plan**. Render needs IPv4, so use the **Shared pooler, session mode** (`aws-N-REGION.pooler.supabase.com:5432`). Do not use the transaction pooler for the long-running server. Keep `max_size` small because the pooler limits clients.
 
 ### Alembic — ctx7: `/websites/alembic_sqlalchemy_en`; SQLAlchemy ctx7: `/sqlalchemy/sqlalchemy/rel_2_0_55`
 
@@ -111,7 +111,7 @@ slowapi facts that drove the rejection (ctx7 `_autodocs/api-reference/extension.
 - Its default `_rate_limit_exceeded_handler` returns `{"error": "Rate limit exceeded: ..."}`, which is not the spec envelope.
 - `headers_enabled` defaults to False.
 - The decorator requires a `request` param on every endpoint.
-- `get_remote_address` ignores `X-Forwarded-For`, which is wrong behind the Render/Railway proxy.
+- `get_remote_address` ignores `X-Forwarded-For`, which is wrong behind the Render proxy.
 
 ### Background jobs — **plain asyncio tasks** (ADR-4); APScheduler not used
 

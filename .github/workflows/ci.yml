@@ -1,6 +1,6 @@
 # CI for CTMS V1 (runbook: "merge to main only after the automated tests pass").
 #   server: ruff + pytest against Postgres 16 with supabase/migrations applied to ctms_test
-#   docker: builds the server image exactly as Railway does (repo-root context)
+#   docker: builds the server image exactly as Render does (repo-root context)
 #   app:    flutter analyze + flutter test (P7)
 name: CI
 
@@ -87,7 +87,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Build image (repo-root context, as Railway builds it)
+      - name: Build image (repo-root context, as Render builds it)
         run: docker build -f server/Dockerfile -t ctms-server:ci .
 
   app:

@@ -110,7 +110,7 @@ The CTMS server needs one secret: the database connection string.
 
    Copy the host from the dialog. You cannot work it out from the region name.
 4. Replace `[YOUR-PASSWORD]` with the database password from step 1. If the password has special characters (`@ : / ? # %`), percent-encode them, or reset it to a letters-and-digits password under **Project Settings → Database**.
-5. Set it as `DATABASE_URL` in the server host's dashboard (Render/Railway environment variables). **Never** put it in the Flutter app or commit it to git.
+5. Set it as `DATABASE_URL` in the server host's dashboard (Render environment variables). **Never** put it in the Flutter app or commit it to git.
 
 ## 6. What NOT to do
 

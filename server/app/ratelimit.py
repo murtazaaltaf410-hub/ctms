@@ -55,7 +55,7 @@ class RateLimiter:
 
 
 def client_ip(request: Request) -> str | None:
-    """Left-most X-Forwarded-For when TRUST_PROXY=true (Render/Railway), else the peer."""
+    """Left-most X-Forwarded-For when TRUST_PROXY=true (Render), else the peer."""
     raw: str | None = None
     if request.app.state.config.trust_proxy:
         forwarded = request.headers.get("x-forwarded-for")

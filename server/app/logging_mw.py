@@ -13,7 +13,7 @@
   (The dev console OTP provider prints codes by design; config refuses
   OTP_PROVIDER=console outside dev/test.)
 - Outside dev/test the root handler writes JSON lines (one object per record),
-  which Railway/Render log search indexes; dev keeps plain text.
+  which Render log search indexes; dev keeps plain text.
 
 Uvicorn's own access log prints raw query strings, so the container runs uvicorn
 with `--no-access-log`; this middleware replaces it.

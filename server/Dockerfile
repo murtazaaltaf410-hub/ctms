@@ -9,7 +9,7 @@
 # On start the container runs `alembic upgrade head` (migrations first, runbook
 # step 3) and then ONE uvicorn worker: live bus state, the WebSocket hub, the
 # rate limiter and the background jobs are in-process (TRD: single instance).
-# Railway/Render inject $PORT; it defaults to 8000.
+# Render injects $PORT; it defaults to 8000.
 
 FROM python:3.12-slim
 

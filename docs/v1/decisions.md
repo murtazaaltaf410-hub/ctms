@@ -106,7 +106,7 @@ Tests need per-test rollback, and production must work through Supabase's pooler
 - `app/ratelimit.py`: a sliding-window counter keyed by `(bucket, key)` with an `asyncio.Lock`.
 - It is exposed as a dependency factory: `Depends(rate_limit("otp_request", per="phone|ip|user", limit_setting="..."))`.
 - It raises `RateLimited(retry_after=s)`, which the global AppError handler renders as `{"error":{"code":"RATE_LIMITED",...}}` with the `Retry-After` header.
-- The client IP comes from the **left-most `X-Forwarded-For`** when `TRUST_PROXY=true` (Render/Railway), else `request.client.host`.
+- The client IP comes from the **left-most `X-Forwarded-For`** when `TRUST_PROXY=true` (Render), else `request.client.host`.
 - Limits are settings, never literals. Defaults:
   - `/auth/phone/request` 3 per phone / 10 min and 20 per IP / 10 min
   - `/trips/{id}/locations` 60 per user / min
