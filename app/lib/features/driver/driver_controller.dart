@@ -173,5 +173,11 @@ final waitingStudentsProvider = FutureProvider.autoDispose
           ref.watch(driverRepositoryProvider).waitingStudents(tripId),
     );
 
+/// Approved students on the driver's bus.
+final rosterProvider = FutureProvider.autoDispose
+    .family<List<RosterStudent>, String>(
+      (ref, tripId) => ref.watch(driverRepositoryProvider).roster(tripId),
+    );
+
 final driverControllerProvider =
     NotifierProvider<DriverController, DriverState>(DriverController.new);

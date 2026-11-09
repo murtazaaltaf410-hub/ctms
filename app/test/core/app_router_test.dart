@@ -5,6 +5,8 @@ import 'package:ctms/core/env.dart';
 import 'package:ctms/core/models/models.dart';
 import 'package:ctms/features/admin/admin_home_screen.dart';
 import 'package:ctms/features/driver/driver_home_screen.dart';
+import 'package:ctms/features/student/registration_providers.dart';
+import 'package:ctms/features/student/registration_screen.dart';
 import 'package:ctms/features/student/student_home_screen.dart';
 import 'package:ctms/privacy/app_config.dart';
 import 'package:ctms/privacy/consent.dart';
@@ -39,6 +41,23 @@ class FakeConsents extends ConsentController {
   Future<Set<String>> build() async => accepted;
 }
 
+class FakeRegistration extends RegistrationController {
+  FakeRegistration(this.value);
+
+  final StudentRegistration? value;
+
+  @override
+  Future<StudentRegistration?> build() async => value;
+}
+
+StudentRegistration _registration(String status) => StudentRegistration(
+  status: RegistrationStatus.parse(status),
+  fullName: 'Student',
+  routeName: 'North Loop',
+  department: 'Physics',
+  requestedBusLabel: 'Bus 2',
+);
+
 AppUser _user(UserRole role) =>
     AppUser.fromJson(userJson(role: role.name, name: role.name));
 
@@ -47,6 +66,7 @@ Future<void> pumpApp(
   required AuthState auth,
   bool privacyAccepted = true,
   bool updateRequired = false,
+  StudentRegistration? registration,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -63,6 +83,7 @@ Future<void> pumpApp(
         versionCheckProvider.overrideWith(
           (ref) async => VersionCheck(updateRequired: updateRequired),
         ),
+        registrationProvider.overrideWith(() => FakeRegistration(registration)),
         liveSessionProvider.overrideWith((ref) {}),
         liveConnectionStateProvider.overrideWith(
           (ref) => Stream.value(LiveConnectionState.idle),
@@ -82,7 +103,11 @@ void main() {
     (UserRole.admin, AdminHomeScreen),
   ]) {
     testWidgets('$role lands on its home screen', (tester) async {
-      await pumpApp(tester, auth: AuthState.signedIn(_user(role)));
+      await pumpApp(
+        tester,
+        auth: AuthState.signedIn(_user(role)),
+        registration: _registration('approved'),
+      );
       expect(find.byType(screen), findsOneWidget);
     });
   }
@@ -109,5 +134,45 @@ void main() {
       updateRequired: true,
     );
     expect(find.byType(UpdateRequiredScreen), findsOneWidget);
+  });
+
+  testWidgets('student without a registration sees the form', (tester) async {
+    await pumpApp(tester, auth: AuthState.signedIn(_user(UserRole.student)));
+    expect(find.byType(RegistrationScreen), findsOneWidget);
+    expect(find.byType(StudentHomeScreen), findsNothing);
+  });
+
+  testWidgets('pending student sees the waiting screen', (tester) async {
+    await pumpApp(
+      tester,
+      auth: AuthState.signedIn(_user(UserRole.student)),
+      registration: _registration('pending'),
+    );
+    expect(find.byType(PendingScreen), findsOneWidget);
+    expect(find.byType(StudentHomeScreen), findsNothing);
+  });
+
+  testWidgets('rejected student sees the form again', (tester) async {
+    await pumpApp(
+      tester,
+      auth: AuthState.signedIn(_user(UserRole.student)),
+      registration: _registration('rejected'),
+    );
+    expect(find.byType(RegistrationScreen), findsOneWidget);
+  });
+
+  testWidgets('privacy comes before the registration gate', (tester) async {
+    await pumpApp(
+      tester,
+      auth: AuthState.signedIn(_user(UserRole.student)),
+      privacyAccepted: false,
+    );
+    expect(find.byType(PrivacyNoticeScreen), findsOneWidget);
+    expect(find.byType(RegistrationScreen), findsNothing);
+  });
+
+  testWidgets('drivers and admins skip the registration gate', (tester) async {
+    await pumpApp(tester, auth: AuthState.signedIn(_user(UserRole.driver)));
+    expect(find.byType(DriverHomeScreen), findsOneWidget);
   });
 }

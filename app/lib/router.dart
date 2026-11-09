@@ -7,9 +7,12 @@ import 'auth/screens/change_password_screen.dart';
 import 'auth/screens/driver_sign_in_screen.dart';
 import 'auth/screens/sign_in_screen.dart';
 import 'auth/screens/splash_screen.dart';
+import 'core/models/registration.dart';
 import 'core/models/user.dart';
 import 'features/admin/admin_home_screen.dart';
 import 'features/driver/driver_home_screen.dart';
+import 'features/student/registration_providers.dart';
+import 'features/student/registration_screen.dart';
 import 'features/student/student_home_screen.dart';
 import 'privacy/app_config.dart';
 import 'privacy/consent.dart';
@@ -29,6 +32,9 @@ abstract final class AppRoutes {
 
   /// First-run privacy gate after sign-in.
   static const privacyGate = '/welcome/privacy';
+
+  /// Student registration form / waiting page (one path, the screen picks).
+  static const registration = '/registration';
 
   /// Read-only privacy notice (any time).
   static const privacy = '/privacy';
@@ -55,6 +61,7 @@ class RedirectInput {
     this.privacyAccepted,
     this.updateRequired = false,
     this.mustChangePassword = false,
+    this.registrationStatus = RegistrationGate.approved,
   });
 
   final String location;
@@ -67,12 +74,16 @@ class RedirectInput {
 
   /// Driver on a temporary password; held on [AppRoutes.changePassword].
   final bool mustChangePassword;
+
+  /// Students only; everyone else is [RegistrationGate.approved].
+  final RegistrationGate registrationStatus;
 }
 
 bool _under(String location, String prefix) =>
     location == prefix || location.startsWith('$prefix/');
 
-/// Route guard: update gate → session → privacy gate → password gate → role home.
+/// Route guard: update gate → session → privacy gate → password gate →
+/// student registration gate → role home.
 String? appRedirect(RedirectInput i) {
   final loc = i.location;
   String? go(String target) => loc == target ? null : target;
@@ -96,6 +107,22 @@ String? appRedirect(RedirectInput i) {
     return _under(loc, AppRoutes.privacy) ? null : go(AppRoutes.changePassword);
   }
 
+  if (role == UserRole.student) {
+    switch (i.registrationStatus) {
+      case RegistrationGate.loading:
+        return _under(loc, AppRoutes.privacy) ? null : go(AppRoutes.splash);
+      case RegistrationGate.failed ||
+          RegistrationGate.none ||
+          RegistrationGate.pending ||
+          RegistrationGate.rejected:
+        return _under(loc, AppRoutes.privacy)
+            ? null
+            : go(AppRoutes.registration);
+      case RegistrationGate.approved:
+        break;
+    }
+  }
+
   final home = AppRoutes.home(role);
   const entry = [
     '/',
@@ -103,6 +130,7 @@ String? appRedirect(RedirectInput i) {
     AppRoutes.update,
     AppRoutes.privacyGate,
     AppRoutes.changePassword,
+    AppRoutes.registration,
   ];
   if (entry.contains(loc) || _under(loc, AppRoutes.signIn)) return home;
   final otherRoleArea = UserRole.values
@@ -118,6 +146,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   void bump(Object? _, Object? _) => refresh.value++;
   ref.listen(authControllerProvider, bump);
   ref.listen(consentControllerProvider, bump);
+  ref.listen(registrationGateProvider, bump);
   ref.listen(versionCheckProvider, bump);
 
   RedirectInput input(String location) {
@@ -135,6 +164,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                 .isAccepted(ConsentKind.privacyNotice),
       updateRequired:
           ref.read(versionCheckProvider).value?.updateRequired ?? false,
+      registrationStatus: ref.read(registrationGateProvider),
     );
   }
 
@@ -163,6 +193,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.changePassword,
         builder: (_, _) => const ChangePasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.registration,
+        builder: (_, _) => const RegistrationFlowScreen(),
       ),
       GoRoute(
         path: AppRoutes.privacyGate,

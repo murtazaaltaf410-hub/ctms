@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/json.dart';
+import '../../core/models/registration.dart';
 import '../../core/models/trip.dart';
 import 'admin_models.dart';
 
@@ -44,6 +45,7 @@ class AdminRepository {
     required String label,
     required String plate,
     String? routeId,
+    int? capacity,
   }) => _api.post(
     'admin/buses',
     body: {
@@ -51,10 +53,55 @@ class AdminRepository {
       'plate': plate,
       'active': true,
       'default_route_id': ?routeId,
+      'capacity': ?capacity,
     },
   );
   Future<void> updateBus(String id, Map<String, dynamic> changes) =>
       _api.patch('admin/buses/$id', body: changes);
+
+  // --- students (ADR-10) ---------------------------------------------------
+  Future<CursorPage<AdminStudent>> students({
+    RegistrationStatus? status,
+    String? routeId,
+    String? busId,
+    String? query,
+    String? cursor,
+    int limit = 50,
+  }) async => CursorPage.fromJson(
+    await _api.get(
+      'admin/students',
+      query: {
+        'limit': limit,
+        'status': ?status?.name,
+        'route_id': ?routeId,
+        'bus_id': ?busId,
+        'q': ?((query ?? '').trim().isEmpty ? null : query!.trim()),
+        'cursor': ?cursor,
+      },
+    ) as Json,
+    AdminStudent.fromJson,
+  );
+
+  Future<StudentSummary> studentSummary() async =>
+      StudentSummary.fromJson(await _api.get('admin/students/summary') as Json);
+
+  Future<AdminStudent> approveStudent(String id, String busId) async =>
+      AdminStudent.fromJson(
+        await _api.post('admin/students/$id/approve', body: {'bus_id': busId})
+            as Json,
+      );
+
+  Future<AdminStudent> reassignStudent(String id, String busId) async =>
+      AdminStudent.fromJson(
+        await _api.post('admin/students/$id/reassign', body: {'bus_id': busId})
+            as Json,
+      );
+
+  Future<AdminStudent> rejectStudent(String id, String note) async =>
+      AdminStudent.fromJson(
+        await _api.post('admin/students/$id/reject', body: {'note': note})
+            as Json,
+      );
 
   /// Returns the one-time temporary password.
   Future<String> createDriver(AdminDriverInput input) async {

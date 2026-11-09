@@ -11,6 +11,7 @@ import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import 'driver_controller.dart';
 import 'driver_tracking.dart';
+import 'roster_card.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});
@@ -188,6 +189,8 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
                 ),
               const SizedBox(height: 16),
               _WaitingStudentsCard(tripId: trip.id),
+              const SizedBox(height: 8),
+              RosterCard(tripId: trip.id),
               const SizedBox(height: 24),
               DropdownButtonFormField<TripStatus>(
                 initialValue: trip.status,

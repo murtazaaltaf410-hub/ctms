@@ -30,6 +30,12 @@ class DriverRepository {
     return parseList(json['items'], WaitingStudent.fromJson);
   }
 
+  /// Approved students assigned to the trip's bus (name and department only).
+  Future<List<RosterStudent>> roster(String tripId) async {
+    final json = await _api.get('trips/$tripId/roster') as Json;
+    return parseList(json['items'], RosterStudent.fromJson);
+  }
+
   Future<void> setStatus(Trip trip, TripStatus status, String? note) =>
       _api.post(
         'trips/${trip.id}/status',

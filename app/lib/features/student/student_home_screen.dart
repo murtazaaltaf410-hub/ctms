@@ -19,6 +19,7 @@ import '../../push/push_service.dart';
 import '../../realtime/live_messages.dart';
 import '../../realtime/live_providers.dart';
 import 'pickup_screen.dart';
+import 'registration_providers.dart';
 import 'student_providers.dart';
 
 class StudentHomeScreen extends ConsumerStatefulWidget {
@@ -30,7 +31,6 @@ class StudentHomeScreen extends ConsumerStatefulWidget {
 
 class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
   int _tab = 0;
-  String? _routeId;
   String? _stopId;
   bool _listView = false;
   StreamSubscription<Position>? _locationSubscription;
@@ -112,12 +112,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
             child: switch (_tab) {
               0 => _LiveTab(
                 listView: _listView,
-                routeId: _routeId,
                 stopId: _stopId,
-                onRouteChanged: (id) => setState(() {
-                  _routeId = id;
-                  _stopId = null;
-                }),
                 onStopChanged: (id) => setState(() => _stopId = id),
                 onShowList: () => setState(() => _listView = true),
               ),
@@ -325,60 +320,58 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
 class _LiveTab extends ConsumerWidget {
   const _LiveTab({
     required this.listView,
-    required this.routeId,
     required this.stopId,
-    required this.onRouteChanged,
     required this.onStopChanged,
     required this.onShowList,
   });
 
   final bool listView;
-  final String? routeId;
   final String? stopId;
-  final ValueChanged<String?> onRouteChanged;
   final ValueChanged<String?> onStopChanged;
   final VoidCallback onShowList;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final routes = ref.watch(studentRoutesProvider);
+    // Students only ever see the route they were approved for; the server
+    // filters the buses too, this keeps the screen right if a message slips by.
+    final registration = ref.watch(registrationProvider);
+    final profile = registration.value;
     final buses = ref.watch(liveBusesProvider).values.toList();
     final config = ref.watch(appConfigProvider).value ?? AppConfig.fallback;
-    final selectedRoute = routeId ?? routes.value?.firstOrNull?.id;
+    final selectedRoute = profile?.routeId;
     final visible = buses
-        .where((bus) => selectedRoute == null || bus.routeId == selectedRoute)
+        .where(
+          (bus) =>
+              bus.routeId == selectedRoute ||
+              (selectedRoute == null && profile == null),
+        )
         .toList();
     final detail = selectedRoute == null
         ? null
         : ref.watch(studentRouteProvider(selectedRoute));
     return RefreshIndicator(
       onRefresh: () async {
-        ref.invalidate(studentRoutesProvider);
+        ref.invalidate(registrationProvider);
         await ref.read(liveBusesProvider.notifier).refetch();
       },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          routes.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (_, _) => _RetryCard(
-              label: 'Routes could not load.',
-              onRetry: () => ref.invalidate(studentRoutesProvider),
-            ),
-            data: (items) => DropdownButtonFormField<String>(
-              initialValue: selectedRoute,
-              decoration: const InputDecoration(labelText: 'Route'),
-              items: items
-                  .map(
-                    (route) => DropdownMenuItem(
-                      value: route.id,
-                      child: Text(route.name),
-                    ),
-                  )
-                  .toList(),
-              onChanged: onRouteChanged,
-            ),
-          ),
+          if (profile != null)
+            Card(
+              key: const Key('student-route-card'),
+              child: ListTile(
+                leading: const Icon(Icons.route),
+                title: Text(profile.routeName ?? 'Your route'),
+                subtitle: Text(
+                  profile.busLabel == null
+                      ? 'Your route'
+                      : 'Your bus: ${profile.busLabel}',
+                ),
+              ),
+            )
+          else if (registration.isLoading)
+            const LinearProgressIndicator(),
           const SizedBox(height: 12),
           if (detail != null)
             detail.when(
@@ -571,7 +564,12 @@ class _BusList extends StatelessWidget {
     if (buses.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(child: Text('No buses are running on this route.')),
+        child: Center(
+          child: Text(
+            'No bus is running on your route right now',
+            textAlign: TextAlign.center,
+          ),
+        ),
       );
     }
     final now = DateTime.now().toUtc();
@@ -780,16 +778,47 @@ class _ProfileTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
+    final profile = ref.watch(registrationProvider).value;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
           child: ListTile(
             leading: const Icon(Icons.account_circle),
-            title: Text(user?.name ?? ''),
+            title: Text(profile?.fullName ?? user?.name ?? ''),
             subtitle: Text(user?.email ?? 'Student account'),
           ),
         ),
+        if (profile != null)
+          Card(
+            key: const Key('profile-assignment'),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.directions_bus),
+                  title: const Text('Assigned bus'),
+                  subtitle: Text(profile.busLabel ?? 'Not assigned yet'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.route),
+                  title: const Text('Route'),
+                  subtitle: Text(profile.routeName ?? 'Not set'),
+                ),
+                if (profile.department != null)
+                  ListTile(
+                    leading: const Icon(Icons.school_outlined),
+                    title: const Text('Department'),
+                    subtitle: Text(profile.department!),
+                  ),
+                if (profile.phone != null)
+                  ListTile(
+                    leading: const Icon(Icons.phone_outlined),
+                    title: const Text('Phone'),
+                    subtitle: Text(profile.phone!),
+                  ),
+              ],
+            ),
+          ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
           onPressed: () => ref.read(authControllerProvider.notifier).signOut(),

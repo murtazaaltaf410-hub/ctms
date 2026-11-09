@@ -1,5 +1,8 @@
 import '../../core/models/json.dart';
+import '../../core/models/registration.dart';
 import '../../core/models/trip.dart';
+
+export '../../core/util/phone.dart' show normalisePhone;
 
 class AdminBus {
   const AdminBus({
@@ -9,6 +12,7 @@ class AdminBus {
     required this.active,
     this.driverName,
     this.defaultRouteId,
+    this.capacity,
     required this.hasActiveTrip,
   });
   factory AdminBus.fromJson(Json j) => AdminBus(
@@ -18,11 +22,15 @@ class AdminBus {
     active: j['active'] as bool,
     driverName: j['driver_name'] as String?,
     defaultRouteId: j['default_route_id'] as String?,
+    capacity: (j['capacity'] as num?)?.toInt(),
     hasActiveTrip: j['has_active_trip'] as bool,
   );
   final String id, label, plate;
   final bool active, hasActiveTrip;
   final String? driverName, defaultRouteId;
+
+  /// Student seats; null = not set.
+  final int? capacity;
 }
 
 class AdminDriver {
@@ -136,18 +144,6 @@ String? cleanEmail(String input) {
   return v.length <= 254 && RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)
       ? v
       : null;
-}
-
-/// Normalises a typed phone number to E.164; Indian numbers by default.
-/// `98765 43210` gives `+919876543210`. Null when it cannot be valid.
-String? normalisePhone(String input, {String defaultCountryCode = '+91'}) {
-  var digits = input.replaceAll(RegExp(r'[\s\-().]'), '');
-  if (digits.startsWith('00')) digits = '+${digits.substring(2)}';
-  if (!digits.startsWith('+')) {
-    digits = digits.replaceFirst(RegExp('^0+'), '');
-    digits = '$defaultCountryCode$digits';
-  }
-  return RegExp(r'^\+[1-9][0-9]{6,14}$').hasMatch(digits) ? digits : null;
 }
 
 class AdminRoute {
@@ -325,4 +321,168 @@ class PathPoint {
   );
   final double lat, lng;
   final DateTime recordedAt;
+}
+
+/// `GET /admin/students` item and the approve / reject / reassign result.
+class AdminStudent {
+  const AdminStudent({
+    required this.id,
+    required this.fullName,
+    required this.status,
+    this.email,
+    this.phone,
+    this.department,
+    this.routeId,
+    this.routeName,
+    this.requestedBusLabel,
+    this.claimsRegistered = false,
+    this.busId,
+    this.busLabel,
+    this.adminNote,
+    this.reviewedAt,
+    required this.createdAt,
+  });
+
+  factory AdminStudent.fromJson(Json j) => AdminStudent(
+    id: j['id'] as String,
+    fullName: j['full_name'] as String,
+    email: j['email'] as String?,
+    phone: j['phone'] as String?,
+    department: j['department'] as String?,
+    routeId: j['route_id'] as String?,
+    routeName: j['route_name'] as String?,
+    requestedBusLabel: j['requested_bus_label'] as String?,
+    claimsRegistered: j['claims_registered'] as bool? ?? false,
+    status: RegistrationStatus.parse(j['status']),
+    busId: j['bus_id'] as String?,
+    busLabel: j['bus_label'] as String?,
+    adminNote: j['admin_note'] as String?,
+    reviewedAt: parseTimeOrNull(j['reviewed_at']),
+    createdAt: parseTime(j['created_at']),
+  );
+
+  /// The student's user id.
+  final String id;
+  final String fullName;
+  final String? email, phone, department;
+  final String? routeId, routeName;
+  final String? requestedBusLabel;
+  final bool claimsRegistered;
+  final RegistrationStatus status;
+  final String? busId, busLabel;
+  final String? adminNote;
+  final DateTime? reviewedAt;
+  final DateTime createdAt;
+}
+
+class StatusCounts {
+  const StatusCounts({
+    this.pending = 0,
+    this.approved = 0,
+    this.rejected = 0,
+    this.total = 0,
+  });
+
+  factory StatusCounts.fromJson(Json j) => StatusCounts(
+    pending: (j['pending'] as num?)?.toInt() ?? 0,
+    approved: (j['approved'] as num?)?.toInt() ?? 0,
+    rejected: (j['rejected'] as num?)?.toInt() ?? 0,
+    total: (j['total'] as num?)?.toInt() ?? 0,
+  );
+
+  final int pending, approved, rejected, total;
+
+  int forStatus(RegistrationStatus? status) => switch (status) {
+    null => total,
+    RegistrationStatus.pending => pending,
+    RegistrationStatus.approved => approved,
+    RegistrationStatus.rejected => rejected,
+  };
+}
+
+/// Seats on one bus (`GET /admin/students/summary` → `buses`).
+class BusSeats {
+  const BusSeats({
+    required this.busId,
+    required this.label,
+    this.routeId,
+    this.capacity,
+    required this.assigned,
+    this.seatsLeft,
+  });
+
+  factory BusSeats.fromJson(Json j) => BusSeats(
+    busId: j['bus_id'] as String,
+    label: j['label'] as String,
+    routeId: j['route_id'] as String?,
+    capacity: (j['capacity'] as num?)?.toInt(),
+    assigned: (j['assigned'] as num?)?.toInt() ?? 0,
+    seatsLeft: (j['seats_left'] as num?)?.toInt(),
+  );
+
+  final String busId, label;
+  final String? routeId;
+
+  /// Null when the office has not set a capacity.
+  final int? capacity;
+  final int assigned;
+
+  /// Null when [capacity] is not set.
+  final int? seatsLeft;
+
+  bool get hasFreeSeat => (seatsLeft ?? 0) > 0;
+
+  /// "Bus 2: 18/40 seats used, route X".
+  String describe(String? routeName) {
+    final route = routeName ?? 'no route';
+    return capacity == null
+        ? '$label: capacity not set, $assigned assigned, route $route'
+        : '$label: $assigned/$capacity seats used, route $route';
+  }
+}
+
+class RouteTotals {
+  const RouteTotals({
+    required this.routeId,
+    required this.routeName,
+    this.pending = 0,
+    this.approved = 0,
+    this.rejected = 0,
+  });
+
+  factory RouteTotals.fromJson(Json j) => RouteTotals(
+    routeId: j['route_id'] as String,
+    routeName: j['route_name'] as String,
+    pending: (j['pending'] as num?)?.toInt() ?? 0,
+    approved: (j['approved'] as num?)?.toInt() ?? 0,
+    rejected: (j['rejected'] as num?)?.toInt() ?? 0,
+  );
+
+  final String routeId, routeName;
+  final int pending, approved, rejected;
+}
+
+/// `GET /admin/students/summary`.
+class StudentSummary {
+  const StudentSummary({
+    this.totals = const StatusCounts(),
+    this.buses = const [],
+    this.routes = const [],
+  });
+
+  factory StudentSummary.fromJson(Json j) => StudentSummary(
+    totals: StatusCounts.fromJson(j['totals'] as Json),
+    buses: parseList(j['buses'], BusSeats.fromJson),
+    routes: parseList(j['routes'], RouteTotals.fromJson),
+  );
+
+  final StatusCounts totals;
+  final List<BusSeats> buses;
+  final List<RouteTotals> routes;
+
+  /// Buses on [routeId] that can take another student.
+  List<BusSeats> busesWithSeats(String? routeId) => [
+    for (final bus in buses)
+      if (bus.routeId == routeId && bus.hasFreeSeat) bus,
+  ];
 }

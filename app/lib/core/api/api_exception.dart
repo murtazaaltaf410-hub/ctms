@@ -8,6 +8,8 @@ enum ApiErrorCode {
   tokenInvalid('TOKEN_INVALID'),
   sessionReplaced('SESSION_REPLACED'),
   forbiddenRole('FORBIDDEN_ROLE'),
+  registrationRequired('REGISTRATION_REQUIRED'),
+  noSeat('NO_SEAT'),
   notYourTrip('NOT_YOUR_TRIP'),
   notFound('NOT_FOUND'),
   tripAlreadyActive('TRIP_ALREADY_ACTIVE'),
@@ -106,6 +108,9 @@ class ApiException implements Exception {
     ApiErrorCode.sessionReplaced =>
       'You were signed out because this account signed in on another device.',
     ApiErrorCode.forbiddenRole => 'Your account is not allowed to do this.',
+    ApiErrorCode.registrationRequired =>
+      'Your registration has to be approved by the transport office first.',
+    ApiErrorCode.noSeat => 'The bus has no free seat.',
     ApiErrorCode.notYourTrip => 'This trip belongs to another driver.',
     ApiErrorCode.notFound => 'This item no longer exists.',
     ApiErrorCode.tripAlreadyActive => 'A trip is already running for this bus.',

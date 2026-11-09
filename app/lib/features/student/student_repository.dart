@@ -126,4 +126,25 @@ class StudentRepository {
   Future<void> cancelPickup(String id) => _api.delete('pickups/$id');
 
   Future<void> deleteAccount() => _api.delete('me');
+
+  /// Null before the first submit.
+  Future<StudentRegistration?> registration() async {
+    final json = await _api.get('me/registration');
+    return json == null ? null : StudentRegistration.fromJson(json as Json);
+  }
+
+  Future<StudentRegistration> submitRegistration(
+    RegistrationInput input,
+  ) async => StudentRegistration.fromJson(
+    await _api.put('me/registration', body: input.toJson()) as Json,
+  );
+
+  /// The route closest to a point, or null when none is near.
+  Future<NearestRoute?> nearestRoute(double lat, double lng) async {
+    final json = await _api.get(
+      'routes/nearest',
+      query: {'lat': lat, 'lng': lng},
+    );
+    return json == null ? null : NearestRoute.fromJson(json as Json);
+  }
 }

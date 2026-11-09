@@ -10,8 +10,10 @@ import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import 'admin_models.dart';
 import 'admin_providers.dart';
+import 'bus_form_dialog.dart';
 import 'driver_form_screen.dart';
 import 'route_map_editor.dart';
+import 'students_tab.dart';
 
 /// Operational admin console. The live list remains useful when Maps is unavailable.
 class AdminHomeScreen extends ConsumerStatefulWidget {
@@ -106,7 +108,7 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
 
 const _titles = [
   'Live fleet',
-  'Buses & drivers',
+  'Buses, drivers & students',
   'Routes & stops',
   'Timetables',
   'Announcements',
@@ -208,13 +210,14 @@ class _FleetTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Builder(
         builder: (tabContext) => Scaffold(
           appBar: const TabBar(
             tabs: [
               Tab(text: 'Buses'),
               Tab(text: 'Drivers'),
+              Tab(text: 'Students'),
             ],
           ),
           body: TabBarView(
@@ -225,8 +228,11 @@ class _FleetTab extends ConsumerWidget {
                 item: (bus) => ListTile(
                   title: Text(bus.label),
                   subtitle: Text(
-                    '${bus.plate}  ${bus.driverName ?? 'No driver'}',
+                    '${bus.plate}  ${bus.driverName ?? 'No driver'}\n'
+                    '${bus.capacity == null ? 'Capacity not set' : '${bus.capacity} seats'}',
                   ),
+                  isThreeLine: true,
+                  onTap: () => _editBus(tabContext, ref, bus),
                   trailing: Switch(
                     value: bus.active,
                     onChanged: bus.hasActiveTrip
@@ -303,12 +309,18 @@ class _FleetTab extends ConsumerWidget {
                   ),
                 ),
               ),
+              const StudentsTab(),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _fleetForm(tabContext, ref),
-            icon: const Icon(Icons.add),
-            label: const Text('Add'),
+          floatingActionButton: ListenableBuilder(
+            listenable: DefaultTabController.of(tabContext),
+            builder: (_, _) => DefaultTabController.of(tabContext).index == 2
+                ? const SizedBox.shrink()
+                : FloatingActionButton.extended(
+                    onPressed: () => _fleetForm(tabContext, ref),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add'),
+                  ),
           ),
         ),
       ),
@@ -638,52 +650,32 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
     await _createDriver(context, ref);
     return;
   }
-  final first = TextEditingController();
-  final second = TextEditingController();
-
-  await showDialog<void>(
+  final bus = await showDialog<BusFormResult>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Add bus'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: first,
-            decoration: const InputDecoration(labelText: 'Label'),
-          ),
-          TextField(
-            controller: second,
-            decoration: const InputDecoration(labelText: 'Plate'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            if (first.text.trim().isEmpty || second.text.trim().isEmpty) {
-              return;
-            }
-            Navigator.pop(dialogContext);
-            await _run(
-              context,
-              ref,
-              () => ref
-                  .read(adminRepositoryProvider)
-                  .createBus(
-                    label: first.text.trim(),
-                    plate: second.text.trim(),
-                  ),
-            );
-          },
-          child: const Text('Create'),
-        ),
-      ],
-    ),
+    builder: (_) => const BusFormDialog(),
+  );
+  if (bus == null || !context.mounted) return;
+  await _run(
+    context,
+    ref,
+    () => ref
+        .read(adminRepositoryProvider)
+        .createBus(label: bus.label, plate: bus.plate, capacity: bus.capacity),
+    refresh: () => refreshStudents(ref),
+  );
+}
+
+Future<void> _editBus(BuildContext context, WidgetRef ref, AdminBus bus) async {
+  final edited = await showDialog<BusFormResult>(
+    context: context,
+    builder: (_) => BusFormDialog(bus: bus),
+  );
+  if (edited == null || !context.mounted) return;
+  await _run(
+    context,
+    ref,
+    () => ref.read(adminRepositoryProvider).updateBus(bus.id, edited.toPatch()),
+    refresh: () => refreshStudents(ref),
   );
 }
 
