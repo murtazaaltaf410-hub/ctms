@@ -137,8 +137,10 @@ def test_cli_parsing_helpers():
     assert parse_status("breakdown@2:00@Flat tyre") == StatusChange(120, "breakdown", "Flat tyre")
     args = build_parser().parse_args(
         [
-            "--phone",
-            "+910000000001",
+            "--identifier",
+            "driver1",
+            "--password",
+            "pw-123456",
             "--dropout",
             "30:60",
             "--dropout",

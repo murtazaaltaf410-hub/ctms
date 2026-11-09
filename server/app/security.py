@@ -5,11 +5,13 @@
 * Refresh token: `<session id>.<random>`; only its SHA-256 is stored
   (`sessions.refresh_hash`). Carrying the session id lets the server tell a
   replayed (already rotated) token from an unknown one -> reuse detection.
-* OTP codes: HMAC-SHA256 of phone + code keyed with JWT_SECRET.
+* Driver passwords (ADR-10): salted scrypt (hashlib.scrypt), stored as
+  `scrypt$n$r$p$salt_b64$hash_b64`; verified with hmac.compare_digest. Never logged or returned.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import secrets
@@ -83,9 +85,53 @@ def hash_matches(stored_hex: str, presented: str) -> bool:
     return hmac.compare_digest(stored_hex, sha256_hex(presented))
 
 
-def new_otp_code(digits: int = 6) -> str:
-    return f"{secrets.randbelow(10**digits):0{digits}d}"
+# --- Passwords (ADR-10) -------------------------------------------------------------
+# hashlib.scrypt (https://docs.python.org/3/library/hashlib.html#hashlib.scrypt): n=2**14, r=8, p=1
+# needs 128*n*r = 16 MiB, above OpenSSL's 32 MiB default maxmem headroom for some builds, so maxmem is set.
+SCRYPT_N = 2**14
+SCRYPT_R = 8
+SCRYPT_P = 1
+SCRYPT_DKLEN = 32
+SCRYPT_MAXMEM = 64 * 1024 * 1024
+_SALT_BYTES = 16
 
 
-def hash_otp(phone: str, code: str, secret: str) -> str:
-    return hmac.new(secret.encode(), f"{phone}:{code}".encode(), hashlib.sha256).hexdigest()
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int, dklen: int) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=dklen)
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(_SALT_BYTES)
+    digest = _scrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN)
+    b64 = base64.b64encode
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${b64(salt).decode()}${b64(digest).decode()}"
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    """Constant-time check. With no/garbled `stored` it still burns one scrypt run (same cost as a
+    real check) and returns False, so unknown users are not distinguishable by timing."""
+    try:
+        if stored is None:
+            raise ValueError
+        scheme, n, r, p, salt_b64, hash_b64 = stored.split("$")
+        if scheme != "scrypt":
+            raise ValueError
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(hash_b64)
+        digest = _scrypt(password, salt, int(n), int(r), int(p), len(expected))
+    except (ValueError, TypeError):
+        _scrypt(password, DUMMY_SALT, SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN)
+        return False
+    return hmac.compare_digest(digest, expected)
+
+
+DUMMY_SALT = b"ctms-dummy-salt!"  # 16 bytes; only used to equalise timing
+
+
+def generate_temporary_password(length: int = 12) -> str:
+    """Readable random password (no 0/O/1/l/I), at least one letter and one digit."""
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    while True:
+        pw = "".join(secrets.choice(alphabet) for _ in range(length))
+        if any(c.isalpha() for c in pw) and any(c.isdigit() for c in pw):
+            return pw

@@ -26,7 +26,7 @@ from app.errors import ForbiddenRole, SessionReplaced, TokenInvalid
 from app.ratelimit import check_rate
 from app.security import decode_access_token
 
-bearer = HTTPBearer(auto_error=False, description="Access token from /auth/google or /auth/phone/verify")
+bearer = HTTPBearer(auto_error=False, description="Access token from /auth/google, /auth/firebase or /auth/login")
 
 
 @dataclass(frozen=True, slots=True)

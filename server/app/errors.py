@@ -35,14 +35,6 @@ class ValidationFailed(AppError):
     status_code, code, message = 400, "VALIDATION_ERROR", "Field missing or out of range"
 
 
-class OtpInvalid(AppError):
-    status_code, code, message = 400, "OTP_INVALID", "Phone sign-in failed"
-
-
-class OtpExpired(AppError):
-    status_code, code, message = 400, "OTP_EXPIRED", "The code has expired; request a new one"
-
-
 # 401
 class _Unauthorized(AppError):
     status_code = 401
@@ -57,6 +49,10 @@ class TokenExpired(_Unauthorized):
 
 class TokenInvalid(_Unauthorized):
     code, message = "TOKEN_INVALID", "Invalid token; sign in again"
+
+
+class InvalidCredentials(_Unauthorized):
+    code, message = "INVALID_CREDENTIALS", "Wrong sign-in details or password"
 
 
 class SessionReplaced(_Unauthorized):
@@ -110,7 +106,7 @@ class DbUnavailable(AppError):
 
 
 ERROR_CLASSES: tuple[type[AppError], ...] = (
-    ValidationFailed, OtpInvalid, OtpExpired, TokenExpired, TokenInvalid, SessionReplaced,
+    ValidationFailed, TokenExpired, TokenInvalid, InvalidCredentials, SessionReplaced,
     ForbiddenRole, NotYourTrip, NotFound, TripAlreadyActive, LastAdmin, InUse, PolylineFailed,
     RateLimited, DbUnavailable,
 )

@@ -1,4 +1,5 @@
-"""Admin drivers (PRD A1): one driver per bus, relink audit (U8), deactivation revokes sessions (U3)."""
+"""Admin drivers (PRD A1, ADR-10): managed accounts with a one-time temporary password, profile fields,
+one driver per bus, relink audit (U8), deactivation / identifier change / reset revoke sessions (U3)."""
 
 # Fixtures imported from tests.admin_helpers are re-bound as test parameters (pytest idiom).
 # ruff: noqa: F811
@@ -6,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -116,7 +118,7 @@ async def test_u3_deactivate_driver_revokes_sessions_and_frees_phone(client, adm
             "/api/v1/admin/drivers", json={"name": "Old", "phone": "+919000000321", "bus_id": str(bus)}, headers=headers
         )
     ).json()
-    tokens = await driver_login("+919000000321")
+    tokens = await driver_login("+919000000321", driver["temporary_password"])
     driver_headers = bearer(tokens["access_token"])
     assert (await client.get("/api/v1/me", headers=driver_headers)).status_code == 200
 
@@ -144,9 +146,164 @@ async def test_phone_change_revokes_sessions(client, admin, con, driver_login):
     driver = (
         await client.post("/api/v1/admin/drivers", json={"name": "D", "phone": "+919000000331"}, headers=headers)
     ).json()
-    tokens = await driver_login("+919000000331")
+    tokens = await driver_login("+919000000331", driver["temporary_password"])
     resp = await client.patch(f"/api/v1/admin/drivers/{driver['id']}", json={"phone": "+919000000332"}, headers=headers)
     assert resp.status_code == 200 and resp.json()["phone"] == "+919000000332"
     assert (await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))).status_code == 401
+    assert (await driver_login("+919000000332", driver["temporary_password"]))["user"]["id"] == driver["id"]
     resp = await client.patch(f"/api/v1/admin/drivers/{driver['id']}", json={"name": "Renamed"}, headers=headers)
     assert resp.status_code == 200
+
+
+# --- ADR-10: identifiers, profile, temporary passwords ----------------------------------------
+
+
+async def test_create_with_userid_email_profile_and_one_time_password(client, admin, con, driver_login):
+    _, headers = await admin()
+    resp = await client.post(
+        "/api/v1/admin/drivers",
+        json={
+            "name": "Full",
+            "userid": "Full.Driver",
+            "email": "Full@UoK.edu.in",
+            "employee_id": "E-17",
+            "licence_no": "JK-123",
+            "licence_expiry": "2030-05-01",
+            "address": "Nowgam",
+            "emergency_name": "Sister",
+            "emergency_phone": "+919000000999",
+            "notes": "Prefers the morning shift",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created["userid"] == "full.driver" and created["email"] == "full@uok.edu.in" and created["phone"] is None
+    assert created["employee_id"] == "E-17" and created["licence_expiry"] == "2030-05-01"
+    assert created["must_change_password"] is True and created["locked"] is False
+    temp = created["temporary_password"]
+    assert len(temp) >= 12 and re.search(r"\d", temp) and re.search(r"[A-Za-z]", temp)
+
+    # Only the hash is stored; it is not the plain password and never comes back.
+    stored = await con.fetchval("select password_hash from public.users where id = $1", UUID(created["id"]))
+    assert stored.startswith("scrypt$") and temp not in stored
+    listed = await client.get("/api/v1/admin/drivers", headers=headers)
+    item = listed.json()["items"][0]
+    assert "temporary_password" not in item and "password_hash" not in item
+    for text in (listed.text, (await client.patch(f"/api/v1/admin/drivers/{created['id']}",
+                                                  json={"notes": "x"}, headers=headers)).text):
+        assert temp not in text and "scrypt" not in text
+
+    # The temporary password signs in by userid or email, and forces a change.
+    tokens = await driver_login("full.driver", temp)
+    assert tokens["must_change_password"] is True
+    assert (await driver_login("full@uok.edu.in", temp))["user"]["id"] == created["id"]
+    meta = await con.fetchval("select meta from public.audit_log where action = 'driver.create'")
+    assert temp not in json.dumps(meta) and "Full" not in json.dumps(meta)
+
+
+async def test_create_requires_an_identifier_and_valid_formats(client, admin):
+    _, headers = await admin()
+    bad = [
+        {"name": "NoId"},
+        {"name": "X", "userid": "ab"},
+        {"name": "X", "userid": "has space"},
+        {"name": "X", "email": "not-an-email"},
+        {"name": "X", "phone": "12345"},
+    ]
+    for body in bad:
+        resp = await client.post("/api/v1/admin/drivers", json=body, headers=headers)
+        assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR", body
+
+
+async def test_duplicate_userid_email_phone_are_validation_errors(client, admin):
+    _, headers = await admin()
+    first = {"name": "A", "userid": "dup.one", "email": "dup@uok.edu.in", "phone": "+919000000401"}
+    assert (await client.post("/api/v1/admin/drivers", json=first, headers=headers)).status_code == 201
+    for field, value in (("userid", "dup.one"), ("email", "dup@uok.edu.in"), ("phone", "+919000000401")):
+        other = {"name": "B", "userid": "dup.two", "email": "two@uok.edu.in", "phone": "+919000000402"}
+        other[field] = value
+        resp = await client.post("/api/v1/admin/drivers", json=other, headers=headers)
+        assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR", field
+        assert field in resp.json()["error"]["message"]
+
+
+async def test_patch_profile_identifiers_and_keep_one_identifier(client, admin, con, driver_login):
+    _, headers = await admin()
+    d = (
+        await client.post(
+            "/api/v1/admin/drivers", json={"name": "P", "userid": "patch.me", "phone": "+919000000411"}, headers=headers
+        )
+    ).json()
+    tokens = await driver_login("patch.me", d["temporary_password"])
+    url = f"/api/v1/admin/drivers/{d['id']}"
+
+    resp = await client.patch(url, json={"licence_no": "L-9", "address": "Srinagar"}, headers=headers)
+    assert resp.status_code == 200 and resp.json()["licence_no"] == "L-9"
+    assert (await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))).status_code == 200  # no sign-out
+
+    resp = await client.patch(url, json={"licence_no": None}, headers=headers)
+    assert resp.json()["licence_no"] is None and resp.json()["address"] == "Srinagar"
+
+    resp = await client.patch(url, json={"email": "patch@uok.edu.in"}, headers=headers)
+    assert resp.status_code == 200 and resp.json()["email"] == "patch@uok.edu.in"
+    assert (await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))).status_code == 401  # id changed
+    reasons = [r["revoked_reason"] for r in
+               await con.fetch("select revoked_reason from public.sessions where user_id = $1", UUID(d["id"]))]
+    assert reasons == ["identifier_changed"]
+
+    # Removing identifiers is fine until none is left.
+    assert (await client.patch(url, json={"userid": None, "phone": None}, headers=headers)).status_code == 200
+    resp = await client.patch(url, json={"email": None}, headers=headers)
+    assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR"
+
+
+async def test_reset_password_returns_new_one_once_unlocks_and_signs_out(client, admin, con, driver_login):
+    actor, headers = await admin()
+    d = (
+        await client.post(
+            "/api/v1/admin/drivers", json={"name": "R", "userid": "reset.me", "phone": "+919000000421"}, headers=headers
+        )
+    ).json()
+    old = d["temporary_password"]
+    tokens = await driver_login("reset.me", old)
+    change = {"current_password": old, "new_password": "My-own-pass-1"}
+    r = await client.post("/api/v1/auth/change-password", json=change, headers=bearer(tokens["access_token"]))
+    assert r.status_code == 204
+    for _ in range(5):  # lock the account
+        await client.post("/api/v1/auth/login", json={"identifier": "reset.me", "password": "bad-password"})
+    row = next(i for i in (await client.get("/api/v1/admin/drivers", headers=headers)).json()["items"])
+    assert row["locked"] is True and row["must_change_password"] is False
+
+    resp = await client.post(f"/api/v1/admin/drivers/{d['id']}/reset-password", headers=headers)
+    assert resp.status_code == 200, resp.text
+    new = resp.json()["temporary_password"]
+    assert set(resp.json()) == {"temporary_password"} and new != old and len(new) >= 12
+
+    row = next(i for i in (await client.get("/api/v1/admin/drivers", headers=headers)).json()["items"])
+    assert row["locked"] is False and row["must_change_password"] is True
+    assert "temporary_password" not in row
+    assert (await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))).status_code == 401
+    assert await con.fetchval(
+        "select revoked_reason from public.sessions where user_id = $1", UUID(d["id"])) == "password_reset"
+    # Old password is dead, the new one works, and the account is no longer locked.
+    bad = await client.post("/api/v1/auth/login", json={"identifier": "reset.me", "password": "My-own-pass-1"})
+    assert bad.status_code == 401 and err(bad) == "INVALID_CREDENTIALS"
+    fresh = await driver_login("reset.me", new)
+    assert fresh["must_change_password"] is True
+    audit = await con.fetchrow("select actor_id, meta from public.audit_log where action = 'driver.reset_password'")
+    assert audit["actor_id"] == actor and new not in json.dumps(audit["meta"])
+
+
+async def test_reset_password_unknown_driver_and_non_admin(client, admin, google_login, create_user):
+    _, headers = await admin()
+    resp = await client.post(
+        "/api/v1/admin/drivers/00000000-0000-4000-8000-000000000000/reset-password", headers=headers
+    )
+    assert resp.status_code == 404 and err(resp) == "NOT_FOUND"
+    student = await google_login("sub-s", "s@gmail.com")
+    driver_id = await create_user("driver", phone="+919000000431")
+    resp = await client.post(
+        f"/api/v1/admin/drivers/{driver_id}/reset-password", headers=bearer(student["access_token"])
+    )
+    assert resp.status_code == 403 and err(resp) == "FORBIDDEN_ROLE"

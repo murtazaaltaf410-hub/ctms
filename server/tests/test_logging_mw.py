@@ -1,4 +1,4 @@
-"""Structured logs: redaction of coordinates/tokens/OTP codes, request lines, X-Request-ID, prod OTP guard."""
+"""Structured logs: redaction of coordinates/tokens/passwords, request lines, X-Request-ID."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 import logging
 
 import pytest
-from pydantic import ValidationError
 
 from app.config import Settings
 from app.logging_mw import REDACTED, JsonFormatter, RedactingFormatter, configure_logging, redact
@@ -37,6 +36,9 @@ def test_redacts_coordinates(text):
         ("refresh_token=0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
         ("0b6f3f9e-8a8c-4e57-9d1a-2f3f5d6c7b8a.Zm9vYmFyYmF6cXV4cXV1eDEyMzQ", "Zm9vYmFy"),
         ('{"otp": "123456"}', "123456"),
+        ('{"password": "Hunter2-secret"}', "Hunter2-secret"),
+        ("temporary_password=Abcd2345wxyz", "Abcd2345wxyz"),
+        ('{"current_password": "OldPass-9876"}', "OldPass-9876"),
         ("push_token=fcm-abc-def-123", "fcm-abc-def-123"),
         ("X-Goog-Api-Key: AIzaSyDUMMYKEY", "AIzaSyDUMMYKEY"),
     ],
@@ -121,17 +123,3 @@ async def test_health_is_logged_at_debug(client, caplog):
     assert lines and lines[-1].levelno == logging.DEBUG
 
 
-@pytest.mark.parametrize("env", ["staging", "production"])
-def test_console_otp_refused_outside_dev(env):
-    """The console OTP provider logs codes by design, so it must never run in staging/prod."""
-    with pytest.raises(ValidationError, match="OTP_PROVIDER=console is for development only"):
-        Settings(
-            _env_file=None,
-            app_env=env,
-            otp_provider="console",
-            jwt_secret="x" * 40,
-            database_url="postgresql://u:p@db:5432/ctms",
-            google_oauth_client_ids=["id"],
-            fcm_credentials="{}",
-            google_directions_key="k",
-        )

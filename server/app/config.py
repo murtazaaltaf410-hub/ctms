@@ -19,7 +19,6 @@ DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-0000000000"
 DEV_DATABASE_URL = "postgresql://postgres:postgres@localhost:55432/ctms"
 
 AppEnv = Literal["dev", "test", "staging", "production"]
-OtpProviderName = Literal["console", "firebase"]
 
 
 class Settings(BaseSettings):
@@ -38,7 +37,6 @@ class Settings(BaseSettings):
 
     # --- Server wiring --------------------------------------------------------
     # ADR-7: console (dev) or firebase. None = console in dev/test; required elsewhere.
-    otp_provider: OtpProviderName | None = None
     trust_proxy: bool = False
     db_pool_min_size: int = 1
     db_pool_max_size: int = 5
@@ -55,8 +53,6 @@ class Settings(BaseSettings):
     rate_general_per_user_window_s: int = 60
     rate_general_per_ip: int = 300
     rate_general_per_ip_window_s: int = 60
-    rate_otp_request_per_ip: int = 20
-    rate_otp_request_per_ip_window_s: int = 600
     rate_login_per_ip: int = 20
     rate_login_per_ip_window_s: int = 600
     rate_locations_per_user: int = 60
@@ -96,13 +92,8 @@ class Settings(BaseSettings):
     student_move_report_m: float = 100
     alert_rider_suppress_m: float = 50
     alert_combine_window_s: float = 60
-    otp_ttl_seconds: int = 300
-    otp_max_sends_per_window: int = 3
-    otp_window_seconds: int = 600
-    otp_max_attempts: int = 5
     location_retention_days: int = 90
     student_location_ttl_s: int = 300
-    otp_request_retention_s: int = 86400
     timezone: str = "Asia/Kolkata"
 
     # --- Journey, arrival and password login (ADR-10, migration 0009) ---
@@ -183,10 +174,6 @@ class Settings(BaseSettings):
     def is_dev(self) -> bool:
         return self.app_env in ("dev", "test")
 
-    @property
-    def resolved_otp_provider(self) -> OtpProviderName:
-        return self.otp_provider or "console"
-
     @model_validator(mode="after")
     def _fail_fast(self) -> Settings:
         if self.is_dev:
@@ -202,10 +189,6 @@ class Settings(BaseSettings):
             problems.append("FCM_CREDENTIALS must be set")
         if not self.google_directions_key:
             problems.append("GOOGLE_DIRECTIONS_KEY must be set")
-        if self.otp_provider is None:
-            problems.append("OTP_PROVIDER must be set (firebase)")
-        elif self.otp_provider == "console":
-            problems.append("OTP_PROVIDER=console is for development only (ADR-7)")
         if problems:
             raise ValueError(f"Invalid configuration for APP_ENV={self.app_env}: " + "; ".join(problems))
         return self

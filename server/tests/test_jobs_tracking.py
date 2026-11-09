@@ -100,20 +100,13 @@ async def test_retention_purges_old_rows_only(con, live_app, create_user, driver
         "expired-hash-p3",
         now - timedelta(seconds=1),
     )
-    await con.execute(
-        "insert into public.phone_otp_requests (phone, requested_at) values ($1, $2), ($1, $3)",
-        "+919800000077",
-        now - timedelta(days=2),
-        now - timedelta(hours=1),
-    )
     counts = await retention_tick(live_app)
     assert counts["locations"] >= 1 and counts["rejected_fixes"] >= 1
-    assert counts["student_locations"] >= 1 and counts["sessions"] >= 1 and counts["phone_otp_requests"] >= 1
+    assert counts["student_locations"] >= 1 and counts["sessions"] >= 1
     assert await con.fetchval("select count(*) from public.locations where trip_id = $1", trip_id) == 1
     assert await con.fetchval("select count(*) from public.rejected_fixes where trip_id = $1", trip_id) == 1
     remaining = {r["user_id"] for r in await con.fetch("select user_id from public.student_locations")}
     assert new_student in remaining and old_student not in remaining
     assert await con.fetchval("select count(*) from public.sessions where refresh_hash = 'expired-hash-p3'") == 0
-    assert await con.fetchval("select count(*) from public.phone_otp_requests where phone = '+919800000077'") == 1
     # The driver's own (unexpired) session survives.
     assert await con.fetchval("select count(*) from public.sessions where user_id = $1", driver["driver_id"]) >= 1

@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 """Foundation: health, error envelope, validation 400, DB 503, rate limiting, config, settings, hooks."""
 
 from __future__ import annotations
@@ -17,14 +18,14 @@ from app.errors import ERROR_CLASSES, AppError, RateLimited
 from app.main import create_app
 from app.ratelimit import RateLimiter
 from app.settings_store import SettingsStore
+from tests.admin_helpers import admin  # noqa: F401
 from tests.conftest import make_config
 
 SPEC_CODES = {
     "VALIDATION_ERROR": 400,
-    "OTP_INVALID": 400,
-    "OTP_EXPIRED": 400,
     "TOKEN_EXPIRED": 401,
     "TOKEN_INVALID": 401,
+    "INVALID_CREDENTIALS": 401,
     "SESSION_REPLACED": 401,
     "FORBIDDEN_ROLE": 403,
     "NOT_YOUR_TRIP": 403,
@@ -77,8 +78,8 @@ async def test_openapi_and_docs(client):
     spec = (await client.get("/openapi.json")).json()
     for path in (
         "/api/v1/auth/google",
-        "/api/v1/auth/phone/request",
-        "/api/v1/auth/phone/verify",
+        "/api/v1/auth/login",
+        "/api/v1/auth/change-password",
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/me",
@@ -138,11 +139,18 @@ async def test_validation_error_is_400(client, body):
     assert err["code"] == "VALIDATION_ERROR" and err["message"]
 
 
-async def test_bad_phone_is_400(client):
-    resp = await client.post("/api/v1/auth/phone/request", json={"phone": "98765"})
+async def test_bad_phone_is_400(client, admin):
+    _, headers = await admin()
+    resp = await client.post("/api/v1/admin/drivers", json={"name": "X", "phone": "98765"}, headers=headers)
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "phone" in resp.json()["error"]["message"]
+
+
+async def test_removed_otp_endpoints_are_gone(client):
+    for step in ("request", "verify"):  # the old phone-OTP endpoints (ADR-10)
+        path = f"/api/v1/auth/phone/{step}"
+        assert (await client.post(path, json={})).status_code == 404
 
 
 @pytest.mark.parametrize("config_overrides", [{"rate_general_per_ip": 2}])
@@ -199,26 +207,21 @@ def test_config_fail_fast_outside_dev():
         "fcm_credentials": "{}",
         "google_directions_key": "k",
     }
-    with pytest.raises(ValueError, match="OTP_PROVIDER must be set"):
-        Settings(_env_file=None, **good)
-    with pytest.raises(ValueError, match="development only"):
-        Settings(_env_file=None, otp_provider="console", **good)
-    ok = Settings(_env_file=None, otp_provider="firebase", **good)
+    ok = Settings(_env_file=None, **good)
     assert ok.google_oauth_client_ids == ["a.apps.googleusercontent.com", "b"]
-    assert make_config().resolved_otp_provider == "console"
 
 
 async def test_settings_store_db_overrides_config(con):
-    store = SettingsStore(make_config(alert_radius_m=777, otp_max_attempts=9), ttl_s=1000)
+    store = SettingsStore(make_config(alert_radius_m=777, login_max_failures=9), ttl_s=1000)
     assert store.get_cached("alert_radius_m") == 777  # nothing loaded yet: config fallback
     assert await store.get("alert_radius_m", con) == 500.0  # seeded DB value wins
     await con.execute("update public.settings set value = '650' where key = 'alert_radius_m'")
     assert await store.get("alert_radius_m", con) == 500.0  # cached
     store.invalidate()
     assert await store.get("alert_radius_m", con) == 650.0
-    await con.execute("delete from public.settings where key = 'otp_max_attempts'")
+    await con.execute("delete from public.settings where key = 'login_max_failures'")
     store.invalidate()
-    assert await store.get("otp_max_attempts", con) == 9  # missing key: config fallback
+    assert await store.get("login_max_failures", con) == 9  # missing key: config fallback
     assert await store.get("timezone", con) == "Asia/Kolkata"
     with pytest.raises(KeyError):
         store.get_cached("no_such_setting")

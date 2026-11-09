@@ -13,10 +13,11 @@ DATABASE_URL=postgresql://... uv run alembic upgrade head   # deploy: runs supab
 ```
 
 Configuration: see the root `.env.example` (copy to `server/.env`). Outside `APP_ENV=dev|test` the
-app refuses to start with missing secrets or `OTP_PROVIDER=console`.
+app refuses to start with missing secrets.
 
-In dev the console OTP provider writes driver codes to the server log
-(`DEV OTP for +91...: 123456`); the demo driver from the seed is `+910000000001`.
+Drivers sign in with `POST /api/v1/auth/login` (userid, email or phone + password, ADR-10). An admin creates
+the account in the admin app and gets a one-time temporary password; the seeded demo driver
+(`+910000000001`) has no password until an admin resets it (`POST /api/v1/admin/drivers/{id}/reset-password`).
 
 ## Layout
 

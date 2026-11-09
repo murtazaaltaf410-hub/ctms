@@ -4,7 +4,7 @@ import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from app.schemas import ApiModel, UtcDateTime
 
@@ -27,28 +27,14 @@ class FirebaseSignInIn(ApiModel):
     id_token: str = Field(min_length=1, max_length=8192)
 
 
-class PhoneRequestIn(ApiModel):
-    phone: str = Field(min_length=1, max_length=32)
-
-    @field_validator("phone")
-    @classmethod
-    def _normalise(cls, value: str) -> str:
-        return normalise_phone(value)
+class LoginIn(ApiModel):
+    identifier: str = Field(min_length=1, max_length=254, description="userid, email or E.164 phone")
+    password: str = Field(min_length=1, max_length=256)
 
 
-class PhoneVerifyIn(ApiModel):
-    phone: str = Field(min_length=1, max_length=32)
-    otp: str = Field(
-        min_length=1,
-        max_length=8192,
-        description="The 6-digit code (console/SMS provider) or, with OTP_PROVIDER=firebase, the Firebase "
-        "ID token from Firebase Phone Auth on the device (ADR-1/ADR-7).",
-    )
-
-    @field_validator("phone")
-    @classmethod
-    def _normalise(cls, value: str) -> str:
-        return normalise_phone(value)
+class ChangePasswordIn(ApiModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class RefreshIn(ApiModel):
@@ -90,3 +76,19 @@ class TokensOut(ApiModel):
 class RefreshOut(ApiModel):
     access_token: str
     refresh_token: str
+
+
+class LoginOut(TokensOut):
+    must_change_password: bool
+
+
+def normalise_identifier(value: str) -> tuple[str, str | None]:
+    """(userid-or-email lower-cased, E.164 phone or None). A phone must start with '+'."""
+    ident = value.strip().lower()
+    phone = None
+    if ident.startswith("+"):
+        try:
+            phone = normalise_phone(ident)
+        except ValueError:
+            phone = None
+    return ident, phone

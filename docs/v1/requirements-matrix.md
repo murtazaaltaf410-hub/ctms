@@ -266,7 +266,7 @@ Error codes (api p6–7), owner P2 (`errors.py`): VALIDATION_ERROR 400, OTP_INVA
 
 | ID | Requirement | Owner | Status |
 |---|---|---|---|
-| X4 | Admin-managed driver accounts: userid / email / phone plus an admin-issued password (scrypt in Postgres), driver profile, forced first-login change, lockout, no OTP | server: `auth/`, `admin/drivers.py`; app: driver sign-in, admin driver form; migration 0007 | migration done (0007), server planned (plan phase 2), app planned (phase 3) |
+| X4 | Admin-managed driver accounts: userid / email / phone plus an admin-issued password (scrypt in Postgres), driver profile, forced first-login change, lockout, no OTP | server: `auth/`, `admin/drivers.py`; app: driver sign-in, admin driver form; migration 0007 | migration done (0007), server done (plan phase 2; tests in test-matrix X4), app planned (phase 3) |
 | X5 | Student registration (name, phone, department, route, bus) with admin approval or rejection and a rejection note; unregistered students are gated | server + app; migration 0008 | migration done (0008), server planned (phase 4), app planned (phase 5) |
 | X6 | Bus seat capacity; approval assigns a bus on the student's route with a free seat (409 `NO_SEAT`, race-safe); no attendance tracking | server: students/admin; migration 0008 | migration done (0008), server planned (phase 4) |
 | X7 | Admin student view: list with filters, totals by status, per-route and per-bus capacity / assigned / seats left, driver roster of name and department only | server + app | planned (phases 4-5) |

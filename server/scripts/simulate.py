@@ -7,10 +7,10 @@ fix is recorded every `--fix-every` seconds and the buffered fixes are posted to
 `fix_id` and the phone's `recorded_at`, like the driver app does (T6, N6).
 
     cd server
-    # Dev server with the console OTP provider (the code is printed in the server log):
-    uv run python scripts/simulate.py --phone +910000000001 --minutes 2
+    # Sign in as a driver account an admin created (userid, email or phone + password):
+    uv run python scripts/simulate.py --identifier driver1 --password 'Temp-pass-1' --minutes 2
     # Non-interactive, 10x faster, a 60 s offline period and some bad fixes:
-    uv run python scripts/simulate.py --phone +910000000001 --otp 123456 --time-scale 10 \\
+    uv run python scripts/simulate.py --identifier driver1 --password 'Temp-pass-1' --time-scale 10 \\
         --dropout 30:60 --bad-accuracy-every 7 --spike-every 11 --duplicate-every 5 \\
         --status delayed@00:45 --status "on_time@01:30"
     # Existing access token, a local route file, leave the trip running:
@@ -35,6 +35,7 @@ is pure: no I/O, no clock. The acceptance tests use it to generate fix streams.
 from __future__ import annotations
 
 import argparse
+import getpass
 import itertools
 import json
 import math
@@ -384,11 +385,11 @@ def sign_in(api: Api, args: argparse.Namespace) -> None:
     if args.token:
         api.access = args.token
         return
-    if not args.phone:
-        raise SimError("give --token, or --phone (dev console OTP)")
-    api.expect(api.call("POST", "/auth/phone/request", {"phone": args.phone}, auth=False), 202)
-    otp = args.otp or input(f"OTP for {args.phone} (see the server log): ").strip()
-    tokens = api.expect(api.call("POST", "/auth/phone/verify", {"phone": args.phone, "otp": otp}, auth=False), 200)
+    if not args.identifier:
+        raise SimError("give --token, or --identifier (userid, email or phone) with --password")
+    password = args.password or getpass.getpass(f"Password for {args.identifier}: ")
+    tokens = api.expect(
+        api.call("POST", "/auth/login", {"identifier": args.identifier, "password": password}, auth=False), 200)
     api.access, api.refresh = tokens["access_token"], tokens["refresh_token"]
     print(f"signed in as {tokens['user']['name']} ({tokens['user']['role']})")
 
@@ -498,8 +499,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="http://localhost:8000", help="server origin (default %(default)s)")
     auth = p.add_argument_group("sign-in (one of)")
     auth.add_argument("--token", help="driver access token")
-    auth.add_argument("--phone", help="driver phone; uses the OTP flow (dev console code)")
-    auth.add_argument("--otp", help="OTP code (prompted if omitted)")
+    auth.add_argument("--identifier", help="driver userid, email or phone (E.164); signs in with a password")
+    auth.add_argument("--password", help="driver password (prompted if omitted)")
     p.add_argument("--route-id", help="route for the new trip (default: the bus's default route)")
     p.add_argument("--direction", choices=["to_campus", "from_campus"], default="to_campus",
                    help="leg to drive: to_campus (stored stop order) or from_campus (reversed); default %(default)s")

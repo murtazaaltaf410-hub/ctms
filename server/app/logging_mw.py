@@ -8,10 +8,8 @@
 - `X-Request-ID` is accepted from the client when it looks safe, otherwise
   generated, and echoed on the response.
 - Every formatted log line (message, args, traceback) passes through `redact()`:
-  coordinates, bearer/JWT/refresh tokens, push tokens, OTP codes and secrets
-  given as key/value are replaced. Logs never carry lat/lng, tokens or OTP codes.
-  (The dev console OTP provider prints codes by design; config refuses
-  OTP_PROVIDER=console outside dev/test.)
+  coordinates, bearer/JWT/refresh tokens, push tokens, passwords and secrets
+  given as key/value are replaced. Logs never carry lat/lng, tokens or passwords.
 - Outside dev/test the root handler writes JSON lines (one object per record),
   which Render log search indexes; dev keeps plain text.
 
@@ -49,7 +47,7 @@ REDACTED = "[redacted]"
 _SENSITIVE_KEYS = (
     r"lat|lng|lon|latitude|longitude|"
     r"access_token|refresh_token|id_token|token|push_token|fcm_token|"
-    r"otp|otp_code|password|secret|jwt_secret|authorization|api_key|x-goog-api-key"
+    r"otp|otp_code|password|current_password|new_password|temporary_password|password_hash|secret|jwt_secret|authorization|api_key|x-goog-api-key"
 )
 _KV = re.compile(
     rf"""(?P<k>["']?\b(?:{_SENSITIVE_KEYS})\b["']?\s*[:=]\s*)(?P<v>"[^"]*"|'[^']*'|[^\s,;&}}\])]+)""",

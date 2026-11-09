@@ -163,7 +163,7 @@ async def google_sign_in(con: asyncpg.Connection, config: Settings, claims: dict
             if not row["active"]:
                 raise TokenInvalid("Account is deactivated")
             if role == "driver":
-                raise ForbiddenRole("Drivers sign in with their phone number")
+                raise ForbiddenRole("Drivers sign in with their userid, email or phone and password")
             await con.execute(
                 "update public.users set google_sub = $2, email = $3 where id = $1 and "
                 "(google_sub is distinct from $2 or email is distinct from $3)",
@@ -232,7 +232,7 @@ async def firebase_email_sign_in(
             if not row["active"]:
                 raise TokenInvalid("Account is deactivated")
             if role == "driver":
-                raise ForbiddenRole("Drivers sign in with their phone number")
+                raise ForbiddenRole("Drivers sign in with their userid, email or phone and password")
             await con.execute(
                 "update public.users set firebase_uid = $2, email = $3 where id = $1 and "
                 "(firebase_uid is distinct from $2 or email is distinct from $3)",

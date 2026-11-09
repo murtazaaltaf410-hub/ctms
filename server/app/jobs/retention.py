@@ -1,7 +1,6 @@
 """Retention (TRD p.5, runbook): bus locations and rejected fixes older than
 `location_retention_days` (90), student locations older than
-`student_location_ttl_s` (5 min), expired sessions, and OTP requests older than
-`otp_request_retention_s` (1 day). Runs every `retention_interval_s`."""
+`student_location_ttl_s` (5 min), expired sessions. Runs every `retention_interval_s`."""
 
 from __future__ import annotations
 
@@ -20,7 +19,6 @@ PURGES = (
     ("rejected_fixes", "delete from public.rejected_fixes where received_at < $1", "history"),
     ("student_locations", "delete from public.student_locations where recorded_at < $1", "student"),
     ("sessions", "delete from public.sessions where expires_at < $1", "now"),
-    ("phone_otp_requests", "delete from public.phone_otp_requests where requested_at < $1", "otp"),
     # ADR-9: finished pickup requests (picked up / cancelled / expired) are not kept.
     ("pickup_requests", "delete from public.pickup_requests where status <> 'waiting' and updated_at < $1", "pickup"),
 )
@@ -32,7 +30,6 @@ async def retention_tick(app: Any) -> dict[str, int]:
     cutoffs = {
         "history": now - timedelta(days=int(store.get_cached("location_retention_days"))),
         "student": now - timedelta(seconds=int(store.get_cached("student_location_ttl_s"))),
-        "otp": now - timedelta(seconds=int(store.get_cached("otp_request_retention_s"))),
         "pickup": now - timedelta(seconds=int(store.get_cached("pickup_retention_s"))),
         "now": now,
     }

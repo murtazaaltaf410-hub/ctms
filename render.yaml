@@ -41,8 +41,6 @@ services:
         value: production # use "staging" on a staging service
       - key: TRUST_PROXY
         value: "true"
-      - key: OTP_PROVIDER
-        value: firebase # `console` is refused outside dev (ADR-7)
       - key: PUSH_PROVIDER
         value: fcm
       - key: LOG_LEVEL

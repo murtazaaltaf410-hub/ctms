@@ -24,7 +24,6 @@ from app.live import run_shutdown_hooks, run_startup_hooks
 from app.live.ws import register as register_live_ws
 from app.logging_mw import install_request_logging
 from app.modules.auth.google import GoogleVerifier
-from app.otp import build_otp_provider
 from app.ratelimit import RateLimiter
 from app.schemas import iso_utc, utcnow
 from app.settings_store import SettingsStore
@@ -53,8 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.settings_store.refresh(con)
         await run_startup_hooks(app)
         await start_jobs(app)
-        log.info("CTMS server started (APP_ENV=%s, OTP provider=%s)", config.app_env,
-                 app.state.otp_provider.name)
+        log.info("CTMS server started (APP_ENV=%s)", config.app_env)
         yield
     finally:
         await stop_jobs(app)
@@ -69,7 +67,6 @@ def init_state(app: FastAPI, config: Settings) -> None:
     app.state.settings_store = SettingsStore(config)
     app.state.rate_limiter = RateLimiter()
     app.state.google_verifier = GoogleVerifier(config.google_oauth_client_ids)
-    app.state.otp_provider = build_otp_provider(config)
 
 
 def create_app(config: Settings | None = None) -> FastAPI:

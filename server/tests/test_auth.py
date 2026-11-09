@@ -1,4 +1,5 @@
-"""Auth: TC1, TC2, TC3, TC4 (role), U1, U3, U4, tokens, refresh rotation/reuse, logout."""
+"""Auth: TC1, TC2 (uniform failure), TC3, TC4 (role), U1, U3, X4 (driver password login), tokens,
+refresh rotation/reuse, logout."""
 
 from __future__ import annotations
 
@@ -8,12 +9,12 @@ from uuid import uuid4
 import jwt
 import pytest
 
-from app.otp import FirebaseOtpProvider
-from app.otp.firebase import TokenExpiredError
-from app.security import create_access_token
-from tests.conftest import bearer
+from app.security import create_access_token, hash_password, verify_password
+from tests.conftest import DEFAULT_DRIVER_PASSWORD, bearer
 
 DRIVER_PHONE = "+919000000001"
+PW = DEFAULT_DRIVER_PASSWORD
+LOGIN = "/api/v1/auth/login"
 
 
 def err(resp) -> str:
@@ -101,92 +102,112 @@ async def test_firebase_email_rejects_unverified_and_driver_accounts(client, fir
     assert driver.status_code == 403 and err(driver) == "FORBIDDEN_ROLE"
 
 
-# --- Phone OTP (TC2, U3, U4) --------------------------------------------------------
+# --- Password login (X4; replaces phone OTP, ADR-10) -------------------------------------
 
 
-async def test_tc2_unregistered_phone_gets_identical_response(client, create_user, otp_codes):
-    await create_user("driver", phone=DRIVER_PHONE)
-    registered = await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})
-    unknown = await client.post("/api/v1/auth/phone/request", json={"phone": "+919111111111"})
-    assert registered.status_code == unknown.status_code == 202
-    assert registered.content == unknown.content == b""
-    assert list(otp_codes) == [DRIVER_PHONE]  # no OTP "sent" to the unregistered number
+async def login(client, identifier, password=PW):
+    return await client.post(LOGIN, json={"identifier": identifier, "password": password})
 
 
-async def test_driver_verify_returns_tokens_and_bus(client, create_user, create_bus, driver_login):
+def test_password_hash_roundtrip_and_format():
+    h = hash_password("S3cret-pass")
+    scheme, n, r, p, _salt, _digest = h.split("$")
+    assert (scheme, int(n), int(r), int(p)) == ("scrypt", 2**14, 8, 1)
+    assert "S3cret-pass" not in h and h != hash_password("S3cret-pass")  # salted
+    assert verify_password("S3cret-pass", h) and not verify_password("s3cret-pass", h)
+    # Missing / garbled hashes are simply "no match" (and cost one scrypt run, like a real check).
+    assert not verify_password("x", None) and not verify_password("x", "plain") and not verify_password("x", "a$b")
+
+
+async def test_driver_login_returns_tokens_bus_and_must_change(client, create_user, create_bus, con):
     driver_id = await create_user("driver", name="Ravi", phone=DRIVER_PHONE)
     bus_id = await create_bus(driver_id, label="Bus 7", plate="JK01AB1234")
-    tokens = await driver_login(DRIVER_PHONE)
-    user = tokens["user"]
+    resp = await login(client, DRIVER_PHONE)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["access_token"] and body["refresh_token"] and body["must_change_password"] is True
+    user = body["user"]
     assert user["role"] == "driver" and user["phone"] == DRIVER_PHONE
     assert user["bus"] == {"id": str(bus_id), "label": "Bus 7", "plate": "JK01AB1234", "default_route_id": None}
+    assert (await client.get("/api/v1/me", headers=bearer(body["access_token"]))).status_code == 200
+    meta = await con.fetchval("select meta from public.audit_log where action = 'auth.password.login'")
+    assert meta == {"provider": "password"}
 
 
-async def test_phone_is_normalised(client, create_user, otp_codes):
-    await create_user("driver", phone=DRIVER_PHONE)
-    resp = await client.post("/api/v1/auth/phone/request", json={"phone": "+91 90000-00001"})
-    assert resp.status_code == 202 and DRIVER_PHONE in otp_codes
-
-
-async def test_wrong_code_then_attempt_limit(client, create_user, otp_codes):
-    await create_user("driver", phone=DRIVER_PHONE)
-    await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})
-    wrong = "000000" if otp_codes[DRIVER_PHONE] != "000000" else "111111"
-    for _ in range(5):  # otp_max_attempts = 5 (seed)
-        resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": wrong})
-        assert resp.status_code == 400 and err(resp) == "OTP_INVALID"
-    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
-    assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"
-
-
-async def test_u4_code_expires_after_ttl(client, create_user, otp_codes, con):
-    await create_user("driver", phone=DRIVER_PHONE)
-    await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})
-    await con.execute(
-        "update public.phone_otp_requests set requested_at = requested_at - interval '6 minutes', "
-        "expires_at = expires_at - interval '6 minutes' where phone = $1",
-        DRIVER_PHONE,
+async def test_login_by_userid_email_and_phone_with_normalisation(client, create_user):
+    driver_id = await create_user(
+        "driver", name="Multi", phone=DRIVER_PHONE, email="multi@uok.edu.in", userid="multi.driver"
     )
-    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]})
-    assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"
+    for ident in ("multi.driver", " Multi.Driver ", "MULTI@UoK.edu.in", DRIVER_PHONE, "+91 90000-00001"):
+        resp = await login(client, ident)
+        assert resp.status_code == 200, (ident, resp.text)
+        assert resp.json()["user"]["id"] == str(driver_id)
 
 
-async def test_code_cannot_be_reused(client, create_user, otp_codes):
-    await create_user("driver", phone=DRIVER_PHONE)
-    await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})
-    body = {"phone": DRIVER_PHONE, "otp": otp_codes[DRIVER_PHONE]}
-    assert (await client.post("/api/v1/auth/phone/verify", json=body)).status_code == 200
-    resp = await client.post("/api/v1/auth/phone/verify", json=body)
-    assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"
+async def test_tc2_failures_are_uniform(client, create_user):
+    await create_user("driver", phone=DRIVER_PHONE, userid="active.one")
+    await create_user("driver", phone="+919000000002", userid="gone.one", active=False)
+    await create_user("student", email="stud@uok.edu.in")
+    cases = [
+        login(client, "active.one", "wrong-password"),  # wrong password
+        login(client, "nobody.here"),  # unknown identifier
+        login(client, "gone.one"),  # inactive driver, right password
+        login(client, "stud@uok.edu.in"),  # a student is not a driver
+        login(client, "+919999999999"),  # unknown phone
+    ]
+    seen = []
+    for coro in cases:
+        resp = await coro
+        assert resp.status_code == 401 and err(resp) == "INVALID_CREDENTIALS"
+        seen.append(resp.json())
+    assert all(body == seen[0] for body in seen)
 
 
-async def test_unregistered_phone_verify_is_otp_invalid(client):
-    await client.post("/api/v1/auth/phone/request", json={"phone": "+919111111111"})
-    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": "+919111111111", "otp": "123456"})
-    assert resp.status_code == 400 and err(resp) == "OTP_INVALID"
-    resp = await client.post("/api/v1/auth/phone/verify", json={"phone": "+919222222222", "otp": "123456"})
-    assert resp.status_code == 400 and err(resp) == "OTP_INVALID"
+async def test_login_validation_is_400(client):
+    for body in ({}, {"identifier": "x"}, {"identifier": "", "password": "p"}, {"identifier": "x", "password": ""}):
+        resp = await client.post(LOGIN, json=body)
+        assert resp.status_code == 400 and err(resp) == "VALIDATION_ERROR"
 
 
-async def test_u4_resend_limit_per_phone(client, create_user, con):
-    await create_user("driver", phone=DRIVER_PHONE)
-    for phone in (DRIVER_PHONE, "+919111111111"):  # same limit for unknown numbers
-        for _ in range(3):  # otp_max_sends_per_window = 3 (seed)
-            assert (await client.post("/api/v1/auth/phone/request", json={"phone": phone})).status_code == 202
-        resp = await client.post("/api/v1/auth/phone/request", json={"phone": phone})
-        assert resp.status_code == 429 and err(resp) == "RATE_LIMITED"
-        assert 1 <= int(resp.headers["Retry-After"]) <= 600
-        assert "admin" in resp.json()["error"]["message"]
-    rows = await con.fetchval("select count(*) from public.phone_otp_requests where provider = 'console'")
-    assert rows == 6
+async def test_driver_without_password_cannot_login(client, con, create_user):
+    driver_id = await create_user("driver", phone=DRIVER_PHONE)
+    await con.execute("update public.users set password_hash = null where id = $1", driver_id)
+    resp = await login(client, DRIVER_PHONE, "")
+    assert resp.status_code == 400  # empty password never reaches the check
+    resp = await login(client, DRIVER_PHONE)
+    assert resp.status_code == 401 and err(resp) == "INVALID_CREDENTIALS"
 
 
-@pytest.mark.parametrize("config_overrides", [{"rate_otp_request_per_ip": 2}])
-async def test_otp_request_per_ip_limit(client):
-    for n in range(2):
-        assert (await client.post("/api/v1/auth/phone/request", json={"phone": f"+91911111111{n}"})).status_code == 202
-    resp = await client.post("/api/v1/auth/phone/request", json={"phone": "+919111111119"})
-    assert resp.status_code == 429 and "Retry-After" in resp.headers
+async def test_lockout_after_n_failures_then_unlock_after_expiry(client, create_user, con):
+    driver_id = await create_user("driver", phone=DRIVER_PHONE)
+    for _ in range(5):  # login_max_failures = 5 (seed)
+        assert err(await login(client, DRIVER_PHONE, "bad-password")) == "INVALID_CREDENTIALS"
+    row = await con.fetchrow("select failed_logins, locked_until from public.users where id = $1", driver_id)
+    assert row["locked_until"] is not None and row["failed_logins"] == 0
+    # Locked: even the right password is refused, with the usual error.
+    resp = await login(client, DRIVER_PHONE)
+    assert resp.status_code == 401 and err(resp) == "INVALID_CREDENTIALS"
+    # The lock expires (login_lock_s = 900 s).
+    await con.execute("update public.users set locked_until = now() - interval '1 second' where id = $1", driver_id)
+    assert (await login(client, DRIVER_PHONE)).status_code == 200
+    assert await con.fetchval("select locked_until from public.users where id = $1", driver_id) is None
+
+
+async def test_success_resets_failure_counter(client, create_user, con):
+    driver_id = await create_user("driver", phone=DRIVER_PHONE)
+    for _ in range(3):
+        await login(client, DRIVER_PHONE, "bad-password")
+    assert await con.fetchval("select failed_logins from public.users where id = $1", driver_id) == 3
+    assert (await login(client, DRIVER_PHONE)).status_code == 200
+    assert await con.fetchval("select failed_logins from public.users where id = $1", driver_id) == 0
+
+
+@pytest.mark.parametrize("config_overrides", [{"rate_login_per_ip": 3}])
+async def test_login_per_ip_rate_limit(client):
+    for _ in range(3):
+        assert (await login(client, "nobody", "whatever")).status_code == 401
+    resp = await login(client, "nobody", "whatever")
+    assert resp.status_code == 429 and err(resp) == "RATE_LIMITED" and int(resp.headers["Retry-After"]) >= 1
 
 
 async def test_u3_deactivated_driver_signed_out_and_number_reissued(client, create_user, driver_login, con):
@@ -197,15 +218,84 @@ async def test_u3_deactivated_driver_signed_out_and_number_reissued(client, crea
     assert resp.status_code == 401 and err(resp) == "TOKEN_INVALID"
     resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": old["refresh_token"]})
     assert resp.status_code == 401
+    assert err(await login(client, DRIVER_PHONE)) == "INVALID_CREDENTIALS"  # the inactive one cannot sign in
     new_id = await create_user("driver", name="New", phone=DRIVER_PHONE)
     new = await driver_login(DRIVER_PHONE)
     assert new["user"]["id"] == str(new_id)
 
 
+# --- Change password ------------------------------------------------------------------------
+
+
+async def test_change_password_flow(client, create_user, driver_login, con):
+    driver_id = await create_user("driver", phone=DRIVER_PHONE)
+    tokens = await driver_login(DRIVER_PHONE)
+    headers = bearer(tokens["access_token"])
+    assert tokens["must_change_password"] is True
+
+    path = "/api/v1/auth/change-password"
+    bad = {"current_password": "nope-nope", "new_password": "Brand-new-1"}
+    wrong = await client.post(path, json=bad, headers=headers)
+    assert wrong.status_code == 401 and err(wrong) == "INVALID_CREDENTIALS"
+    short = await client.post(path, json={"current_password": PW, "new_password": "short"}, headers=headers)
+    assert short.status_code == 400 and err(short) == "VALIDATION_ERROR"
+    same = await client.post(path, json={"current_password": PW, "new_password": PW}, headers=headers)
+    assert same.status_code == 400 and err(same) == "VALIDATION_ERROR"
+
+    # A second device signs in, which replaced the first; change the password from the second one.
+    other = await driver_login(DRIVER_PHONE)
+    other_headers = bearer(other["access_token"])
+    resp = await client.post(path, json={"current_password": PW, "new_password": "Brand-new-1"}, headers=other_headers)
+    assert resp.status_code == 204 and resp.content == b""
+    assert (await client.get("/api/v1/me", headers=other_headers)).status_code == 200  # this session survives
+    assert await con.fetchval("select must_change_password from public.users where id = $1", driver_id) is False
+    assert await con.fetchval("select action from public.audit_log where action = 'auth.password.change'")
+
+    assert err(await login(client, DRIVER_PHONE, PW)) == "INVALID_CREDENTIALS"
+    new = await login(client, DRIVER_PHONE, "Brand-new-1")
+    assert new.status_code == 200 and new.json()["must_change_password"] is False
+
+
+async def test_change_password_requires_driver_token(client, google_login):
+    body = {"current_password": PW, "new_password": "Brand-new-1"}
+    assert (await client.post("/api/v1/auth/change-password", json=body)).status_code == 401
+    student = await google_login()
+    resp = await client.post("/api/v1/auth/change-password", json=body, headers=bearer(student["access_token"]))
+    assert resp.status_code == 403 and err(resp) == "FORBIDDEN_ROLE"
+
+
+async def test_change_password_revokes_other_live_sessions(client, create_user, con):
+    driver_id = await create_user("driver", phone=DRIVER_PHONE)
+    first = (await login(client, DRIVER_PHONE)).json()
+    second = (await login(client, DRIVER_PHONE)).json()  # replaces the first
+    # Force a still-live third session for the same driver (cannot happen via /auth/login alone).
+    await con.execute(
+        "insert into public.sessions (user_id, refresh_hash, expires_at) values ($1, 'x', now() + interval '1 day')",
+        driver_id,
+    )
+    body = {"current_password": PW, "new_password": "Brand-new-1"}
+    resp = await client.post("/api/v1/auth/change-password", json=body, headers=bearer(second["access_token"]))
+    assert resp.status_code == 204
+    reasons = sorted(r["revoked_reason"] or "-" for r in await con.fetch("select revoked_reason from public.sessions"))
+    assert reasons == ["-", "password_changed", "replaced"]
+    assert (await client.get("/api/v1/me", headers=bearer(first["access_token"]))).status_code == 401
+
+
+# --- Responses never carry a password or hash -----------------------------------------------
+
+
+async def test_hash_never_in_any_response(client, create_user, driver_login):
+    await create_user("driver", phone=DRIVER_PHONE)
+    tokens = await driver_login(DRIVER_PHONE)
+    me = await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))
+    for text in (str(tokens), me.text):
+        assert "scrypt" not in text and "password_hash" not in text and PW not in text
+
+
 # --- Sessions (TC3 / T11) -----------------------------------------------------------
 
 
-async def test_tc3_second_phone_replaces_first_session(client, create_user, driver_login):
+async def test_tc3_second_login_replaces_first_session(client, create_user, driver_login):
     await create_user("driver", phone=DRIVER_PHONE)
     first = await driver_login(DRIVER_PHONE)
     second = await driver_login(DRIVER_PHONE)
@@ -324,42 +414,3 @@ async def test_logout_with_push_token_removes_only_that_one(client, google_login
     resp = await client.post("/api/v1/auth/logout", json={"push_token": "fcm-a"}, headers=bearer(a["access_token"]))
     assert resp.status_code == 204
     assert [r["token"] for r in await con.fetch("select token from public.push_tokens")] == ["fcm-b"]
-
-
-# --- Firebase provider (ADR-1 behind ADR-7) ------------------------------------------------
-
-
-def firebase_app(app, claims_or_exc):
-    async def verifier(token: str) -> dict:
-        if isinstance(claims_or_exc, Exception):
-            raise claims_or_exc
-        return claims_or_exc
-
-    app.state.otp_provider = FirebaseOtpProvider(verifier)
-
-
-async def test_firebase_provider_paths(app, client, create_user, con):
-    await create_user("driver", phone=DRIVER_PHONE)
-    now = int(datetime.now(UTC).timestamp())
-    body = {"phone": DRIVER_PHONE, "otp": "firebase-id-token"}
-
-    firebase_app(app, {"phone_number": DRIVER_PHONE, "auth_time": now})
-    resp = await client.post("/api/v1/auth/phone/verify", json=body)
-    assert resp.status_code == 400 and err(resp) == "OTP_EXPIRED"  # no /request in the last 5 min
-
-    assert (await client.post("/api/v1/auth/phone/request", json={"phone": DRIVER_PHONE})).status_code == 202
-    row = await con.fetchrow("select provider, code_hash from public.phone_otp_requests where phone = $1", DRIVER_PHONE)
-    assert row["provider"] == "firebase" and row["code_hash"] is None
-    resp = await client.post("/api/v1/auth/phone/verify", json=body)
-    assert resp.status_code == 200 and resp.json()["user"]["role"] == "driver"
-
-    cases = [
-        ({"phone_number": "+919999999999", "auth_time": now}, "OTP_INVALID"),
-        ({"phone_number": DRIVER_PHONE, "auth_time": now - 3600}, "OTP_EXPIRED"),
-        (TokenExpiredError(), "OTP_EXPIRED"),
-        (ValueError("bad signature"), "OTP_INVALID"),
-    ]
-    for claims, code in cases:
-        firebase_app(app, claims)
-        resp = await client.post("/api/v1/auth/phone/verify", json=body)
-        assert resp.status_code == 400 and err(resp) == code, claims

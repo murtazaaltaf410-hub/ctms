@@ -51,8 +51,8 @@ async def test_e2e_route_to_report(
     student = await alert_student(client, google_login, 41, hostel["lat"], hostel["lng"])
     ws, task = await ws_connect(live_app, student.headers["Authorization"].removeprefix("Bearer "))
 
-    # 3. Driver signs in by phone and starts the trip on the default route.
-    tokens = await driver_login("+919877700001")
+    # 3. Driver signs in with the temporary password from step 1 and starts the trip on the default route.
+    tokens = await driver_login("+919877700001", drv.json()["temporary_password"])
     me = (await client.get("/api/v1/me", headers=bearer(tokens["access_token"]))).json()
     assert me["role"] == "driver"
     start = await client.post("/api/v1/trips/start", json={}, headers=bearer(tokens["access_token"]))

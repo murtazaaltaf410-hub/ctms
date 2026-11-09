@@ -15,7 +15,7 @@ from firebase_admin import exceptions as fb_exceptions
 from firebase_admin import messaging
 
 from app.config import Settings
-from app.otp.firebase import ensure_firebase_app
+from app.integrations.firebase import ensure_firebase_app
 from app.push.base import PushMessage, PushResult, PushSender, redact
 
 log = logging.getLogger("ctms.push")

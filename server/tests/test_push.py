@@ -115,7 +115,6 @@ def test_production_refuses_non_fcm_push_provider():
             database_url="postgresql://prod/db",
             fcm_credentials="{}",
             google_directions_key="k",
-            otp_provider="firebase",
             push_provider="log",
         )
 

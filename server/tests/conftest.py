@@ -5,7 +5,9 @@ calling `con.transaction()` gets a SAVEPOINT.
     docker compose -f docker-compose.dev.yml up -d     # from the repo root
     cd server && uv run pytest -q
 
-Google and OTP are faked through `app.state` (see `FakeGoogle`, `otp_codes`).
+Google and Firebase are faked through `app.state` (see `FakeGoogle`, `FakeFirebase`).
+Drivers made with `create_user('driver', ...)` get the password DEFAULT_DRIVER_PASSWORD, so
+`driver_login(identifier)` works without further set-up.
 """
 
 from __future__ import annotations
@@ -22,7 +24,18 @@ from app.config import Settings
 from app.db import get_conn, init_conn
 from app.errors import TokenInvalid
 from app.main import create_app
-from app.otp import ConsoleOtpProvider
+from app.security import hash_password
+
+DEFAULT_DRIVER_PASSWORD = "Driver#1234"
+_DEFAULT_HASH: list[str] = []
+
+
+def default_driver_hash() -> str:
+    """scrypt is deliberately slow: hash the shared test password once per run."""
+    if not _DEFAULT_HASH:
+        _DEFAULT_HASH.append(hash_password(DEFAULT_DRIVER_PASSWORD))
+    return _DEFAULT_HASH[0]
+
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/ctms_test")
 
@@ -32,7 +45,6 @@ def make_config(**overrides) -> Settings:
         "app_env": "test",
         "database_url": TEST_DATABASE_URL,
         "google_oauth_client_ids": ["test-client-id"],
-        "otp_provider": "console",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -109,12 +121,6 @@ def config(config_overrides: dict) -> Settings:
 
 
 @pytest.fixture
-def otp_codes() -> dict[str, str]:
-    """phone -> last code the console provider 'sent' (only for active drivers)."""
-    return {}
-
-
-@pytest.fixture
 def google() -> FakeGoogle:
     return FakeGoogle()
 
@@ -125,9 +131,7 @@ def firebase() -> FakeFirebase:
 
 
 @pytest.fixture
-def app(
-    config: Settings, con: asyncpg.Connection, otp_codes: dict[str, str], google: FakeGoogle, firebase: FakeFirebase
-):
+def app(config: Settings, con: asyncpg.Connection, google: FakeGoogle, firebase: FakeFirebase):
     application = create_app(config)
 
     async def test_conn() -> AsyncIterator[asyncpg.Connection]:
@@ -136,7 +140,6 @@ def app(
     application.dependency_overrides[get_conn] = test_conn
     application.state.google_verifier = google
     application.state.firebase_token_verifier = firebase
-    application.state.otp_provider = ConsoleOtpProvider(config.jwt_secret, sink=otp_codes.__setitem__)
     yield application
     application.dependency_overrides.clear()
 
@@ -160,14 +163,23 @@ def create_user(con: asyncpg.Connection) -> Callable:
         email: str | None = None,
         phone: str | None = None,
         active: bool = True,
+        userid: str | None = None,
+        password: str | None = None,
     ) -> UUID:
+        """Drivers get `password` (default DEFAULT_DRIVER_PASSWORD); other roles have no password."""
+        password_hash = None
+        if role == "driver":
+            password_hash = hash_password(password) if password else default_driver_hash()
         return await con.fetchval(
-            "insert into public.users (role, name, email, phone, active) values ($1, $2, $3, $4, $5) returning id",
+            """insert into public.users (role, name, email, phone, active, userid, password_hash)
+               values ($1, $2, $3, $4, $5, $6, $7) returning id""",
             role,
             name,
             email,
             phone,
             active,
+            userid,
+            password_hash,
         )
 
     return make
@@ -207,11 +219,9 @@ def firebase_login(client: httpx.AsyncClient, firebase: FakeFirebase) -> Callabl
 
 
 @pytest.fixture
-def driver_login(client: httpx.AsyncClient, otp_codes: dict[str, str]) -> Callable:
-    async def login(phone: str) -> dict:
-        resp = await client.post("/api/v1/auth/phone/request", json={"phone": phone})
-        assert resp.status_code == 202, resp.text
-        resp = await client.post("/api/v1/auth/phone/verify", json={"phone": phone, "otp": otp_codes[phone]})
+def driver_login(client: httpx.AsyncClient) -> Callable:
+    async def login(identifier: str, password: str = DEFAULT_DRIVER_PASSWORD) -> dict:
+        resp = await client.post("/api/v1/auth/login", json={"identifier": identifier, "password": password})
         assert resp.status_code == 200, resp.text
         return resp.json()
 
