@@ -12,3 +12,4 @@ create database ctms_test;
 set ctms.seed_demo = 'off';
 \i /ctms/migrations/0003_seed.sql
 \i /ctms/migrations/0004_firebase_email.sql
+\i /ctms/migrations/0005_trip_direction.sql

@@ -393,8 +393,11 @@ def sign_in(api: Api, args: argparse.Namespace) -> None:
     print(f"signed in as {tokens['user']['name']} ({tokens['user']['role']})")
 
 
-def start_or_resume(api: Api, route_id: str | None) -> dict:
-    resp = api.call("POST", "/trips/start", {"route_id": route_id} if route_id else {})
+def start_or_resume(api: Api, route_id: str | None, direction: str = "to_campus") -> dict:
+    body: dict = {"direction": direction}
+    if route_id:
+        body["route_id"] = route_id
+    resp = api.call("POST", "/trips/start", body)
     if resp.status_code == 409:   # T10: resume the existing trip, like the app offers
         trip = api.expect(api.call("GET", "/trips/active"), 200)
         if trip is None:
@@ -402,7 +405,8 @@ def start_or_resume(api: Api, route_id: str | None) -> dict:
         print(f"resuming active trip {trip['id']} on {trip['bus_label']} / {trip['route_name']}")
         return trip
     trip = api.expect(resp, 201)
-    print(f"started {trip['type']} trip {trip['id']} on {trip['bus_label']} / {trip['route_name']}")
+    print(f"started {trip['type']} {trip.get('direction', 'to_campus')} trip {trip['id']} "
+          f"on {trip['bus_label']} / {trip['route_name']}")
     return trip
 
 
@@ -412,13 +416,15 @@ def route_points(api: Api, args: argparse.Namespace, trip: dict) -> list[LatLng]
     route = api.expect(api.call("GET", f"/routes/{trip['route_id']}"), 200)
     if not route.get("polyline"):
         raise SimError(f"route {route['name']} has no polyline; pass --route-file")
-    return decode_polyline(route["polyline"])
+    points = decode_polyline(route["polyline"])
+    # A from_campus trip drives the stored route backwards (the server reads it reversed too).
+    return points[::-1] if trip.get("direction") == "from_campus" else points
 
 
 def run(args: argparse.Namespace) -> int:
     api = Api(args.base_url)
     sign_in(api, args)
-    trip = start_or_resume(api, args.route_id)
+    trip = start_or_resume(api, args.route_id, args.direction)
     route = Route(route_points(api, args, trip))
     cfg = DriveConfig(speed_kmh=args.speed_kmh, fix_every_s=args.fix_every, minutes=args.minutes,
                       jitter_m=args.jitter_m, bad_accuracy_every=args.bad_accuracy_every,
@@ -495,6 +501,8 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--phone", help="driver phone; uses the OTP flow (dev console code)")
     auth.add_argument("--otp", help="OTP code (prompted if omitted)")
     p.add_argument("--route-id", help="route for the new trip (default: the bus's default route)")
+    p.add_argument("--direction", choices=["to_campus", "from_campus"], default="to_campus",
+                   help="leg to drive: to_campus (stored stop order) or from_campus (reversed); default %(default)s")
     p.add_argument("--route-file", help="drive a local GPX/JSON route instead of the trip's polyline")
     p.add_argument("--speed-kmh", type=float, default=25.0, help="driving speed (default %(default)s)")
     p.add_argument("--fix-every", type=float, default=3.0, help="seconds between GPS fixes (default %(default)s)")

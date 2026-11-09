@@ -156,6 +156,7 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
             route_name=bus.route.name, lat=bus.lat, lng=bus.lng,  # type: ignore[arg-type]
             speed_mps=bus.ema_speed_mps, heading=bus.heading, recorded_at=bus.recorded_at,  # type: ignore[arg-type]
             received_at=bus.received_at, trip_status=bus.status,  # type: ignore[arg-type]
+            direction=bus.direction,
         ))
     return result
 

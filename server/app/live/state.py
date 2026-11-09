@@ -54,6 +54,12 @@ class RouteGeom:
     def usable(self) -> bool:
         return len(self.points) >= 1
 
+    def reversed(self) -> RouteGeom:
+        """The same road read backwards (a `from_campus` trip): points flipped and
+        the cumulative distances recomputed from the new start."""
+        points = list(reversed(self.points))
+        return RouteGeom(self.route_id, self.name, points, cumulative_distances(points))
+
 
 @dataclass
 class BusLive:
@@ -65,6 +71,7 @@ class BusLive:
     route: RouteGeom
     started_at: datetime
     trip_type: str = "ad_hoc"
+    direction: str = "to_campus"
     scheduled_departure: datetime | None = None
     status: str = "on_time"
     note: str | None = None

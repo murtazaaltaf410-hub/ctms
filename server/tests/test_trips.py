@@ -111,14 +111,14 @@ async def test_tc5_concurrent_start_hits_unique_index(client, con, live_app, dri
     driver = await driver_with_bus()
     real_classify = trip_service._classify
 
-    async def racing_classify(app, c, route_id, started_at):
+    async def racing_classify(app, c, route_id, started_at, direction):
         await con.execute(
             "insert into public.trips (bus_id, driver_id, route_id, type) values ($1, $2, $3, 'ad_hoc')",
             driver["bus_id"],
             driver["driver_id"],
             route_id,
         )
-        return await real_classify(app, c, route_id, started_at)
+        return await real_classify(app, c, route_id, started_at, direction)
 
     monkeypatch.setattr(trip_service, "_classify", racing_classify)
     resp = await client.post("/api/v1/trips/start", json={}, headers=driver["headers"])

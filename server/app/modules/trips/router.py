@@ -33,7 +33,8 @@ async def start_trip(request: Request, user: Driver, con: Conn, body: StartTripI
     `type` is `scheduled` when the start is within `schedule_match_window_s` of a
     timetable slot (campus time zone), else `ad_hoc`. 409 TRIP_ALREADY_ACTIVE if the
     driver or the bus already has an active trip (T10)."""
-    return await service.start_trip(request.app, con, user.id, body.route_id if body else None)
+    return await service.start_trip(request.app, con, user.id, body.route_id if body else None,
+                                    body.direction if body else "to_campus")
 
 
 @router.post("/{trip_id}/status", status_code=204)

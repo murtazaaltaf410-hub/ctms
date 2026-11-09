@@ -37,6 +37,7 @@ class FixEvent:
     recorded_at: datetime
     received_at: datetime
     trip_status: str  # on_time | delayed | breakdown
+    direction: str = "to_campus"  # to_campus | from_campus
 
 
 @dataclass(frozen=True)

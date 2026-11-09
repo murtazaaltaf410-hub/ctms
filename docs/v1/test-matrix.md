@@ -136,3 +136,9 @@ The acceptance tests drive the real API through `httpx.ASGITransport` against th
 | Bug | Severity | Case | Test | Summary |
 |---|---|---|---|---|
 | P6-1 | medium | U6 / TC17 | `acceptance/test_tc17_blocked_deletes.py::test_tc17_u6_stop_added_mid_trip_does_not_change_running_trip_etas` (strict xfail) | When an admin adds or moves a stop during a trip, `regenerate_polyline` rewrites every `stops.dist_along_m` for the new polyline straight away. The running trip keeps its frozen `RouteGeom`. `GET /stops/{id}/eta` subtracts the bus position on the old polyline from the stop distance on the new one, so ETAs jump. In the test, adding a first stop ~600 m before the start moved one ETA from 150 s to 222 s. Fix direction: snap stops onto the trip's frozen polyline for active trips, or freeze the stop distances per trip at start. `rebuild_live` after a restart also loads the *new* polyline for an active trip. |
+
+## V1.1 extensions (ADR-9)
+
+| ID | Test | Status |
+|---|---|---|
+| X1 | `test_direction.py`: default direction, unknown direction → 400, reversed-route ETA for `from_campus`, `to_campus` unchanged, schedule slot matches only its own direction, admin schedule direction | pass |

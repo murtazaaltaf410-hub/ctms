@@ -196,3 +196,11 @@ The user chose the Routes API because new Cloud projects may not be able to enab
 - **P5:** call `POST https://routes.googleapis.com/directions/v2:computeRoutes` with headers `X-Goog-Api-Key` and `X-Goog-FieldMask: routes.polyline.encodedPolyline,routes.distanceMeters`. Use the stops as origin, intermediates and destination, with `travelMode: DRIVE`. Check the exact request shape with context7 or the official docs before coding.
 - Call it once whenever a route's stops change. If it fails, the route becomes a draft with `POLYLINE_FAILED`.
 - The env var keeps the runbook name `GOOGLE_DIRECTIONS_KEY`; the key must have the Routes API enabled and be restricted to the server.
+
+## ADR-9 — Trip direction, student pickup pins and driver alerts (V1.1 extension, 2026-11-09)
+
+Added after the Render pilot started. These go beyond the V1 PRD; no PRD non-goal forbids them.
+- **Direction.** A trip has `direction` = `to_campus` (home → campus) or `from_campus` (campus → home); schedule slots have one too, and a trip only matches slots of its own direction. A route stays **one** polyline and one stop list. The stored order is the `to_campus` order. A `from_campus` trip reads the same route in reverse: `RouteGeom.reversed()` flips the points and recomputes cumulative distances, and stops are snapped in reverse sequence order (`trips/service.py`). Everything downstream (live position, ETA, alerts) works on that frozen reversed geometry unchanged.
+- **Assumption:** the return leg follows the same road as the outbound leg. If a real one-way system breaks that, model that leg as its own route.
+- **DB:** migration `0005_trip_direction.sql` adds `trips.direction` and `schedules.direction` (default `to_campus`, additive, so rollback is safe).
+- **Student pickup pins and driver alerts** (migration 0006): students place a temporary pickup pin per leg. This is not an admin stop and does not change a route. See the requirement IDs X2–X3 in `requirements-matrix.md`.

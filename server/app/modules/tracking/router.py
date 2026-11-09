@@ -8,7 +8,7 @@ revoked since startup are refused, and writes queue in the batched writer.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -76,6 +76,7 @@ class LiveBus(ApiModel):
     trip_id: UUID
     route_id: UUID
     route_name: str
+    direction: Literal["to_campus", "from_campus"]
     lat: float
     lng: float
     heading: float | None
@@ -162,7 +163,7 @@ async def live_buses(request: Request, user: AuthUser) -> list[LiveBus]:
             continue
         out.append(LiveBus(
             bus_id=bus.bus_id, label=bus.bus_label, trip_id=bus.trip_id, route_id=bus.route_id,
-            route_name=bus.route.name, lat=bus.lat, lng=bus.lng, heading=bus.heading,
+            route_name=bus.route.name, direction=bus.direction, lat=bus.lat, lng=bus.lng, heading=bus.heading,
             speed=None if bus.ema_speed_mps is None else round(bus.ema_speed_mps, 2), status=bus.status,
             note=bus.note, last_fix_at=bus.received_at, recorded_at=bus.recorded_at,
             state=classify(bus, now, **thresholds), clock_skew_s=bus.clock_skew_s,

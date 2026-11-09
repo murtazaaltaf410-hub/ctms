@@ -56,7 +56,8 @@ jobs:
             psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 -f supabase/migrations/0003_seed.sql
           # 0004 adds users.firebase_uid (Firebase email auth).
           psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 \
-            -f supabase/migrations/0004_firebase_email.sql
+            -f supabase/migrations/0004_firebase_email.sql \
+            -f supabase/migrations/0005_trip_direction.sql
 
       - uses: astral-sh/setup-uv@v6
         with:

@@ -8,10 +8,15 @@ from pydantic import Field
 from app.schemas import ApiModel, UtcDateTime
 
 TripStatus = Literal["on_time", "delayed", "breakdown"]
+Direction = Literal["to_campus", "from_campus"]
 
 
 class StartTripIn(ApiModel):
     route_id: UUID | None = Field(default=None, description="Omit to use the bus's default route")
+    direction: Direction = Field(
+        default="to_campus",
+        description="to_campus = the route in stored stop order (home -> campus); from_campus = reversed",
+    )
 
 
 class StatusIn(ApiModel):
@@ -28,6 +33,7 @@ class TripOut(ApiModel):
     driver_id: UUID
     schedule_id: UUID | None
     type: Literal["scheduled", "ad_hoc"]
+    direction: Direction
     scheduled_departure: UtcDateTime | None = Field(description="Planned slot time for scheduled trips")
     status: TripStatus
     note: str | None

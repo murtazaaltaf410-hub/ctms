@@ -30,7 +30,7 @@ from app.modules.trips.schemas import TripOut, TripSummary
 log = logging.getLogger("ctms.trips")
 
 TRIP_SELECT = """
-select t.id, t.bus_id, t.driver_id, t.route_id, t.schedule_id, t.type, t.status, t.note,
+select t.id, t.bus_id, t.driver_id, t.route_id, t.schedule_id, t.type, t.direction, t.status, t.note,
        t.started_at, t.ended_at, t.closed_by, t.distance_m, t.last_fix_at,
        b.label as bus_label, r.name as route_name, r.polyline, r.cum_dist_m,
        s.departure_time
@@ -57,7 +57,8 @@ def trip_out(app: Any, row: asyncpg.Record) -> TripOut:
     return TripOut(
         id=row["id"], bus_id=row["bus_id"], bus_label=row["bus_label"], route_id=row["route_id"],
         route_name=row["route_name"], driver_id=row["driver_id"], schedule_id=row["schedule_id"],
-        type=row["type"], scheduled_departure=_scheduled_departure(app, row), status=row["status"],
+        type=row["type"], direction=row["direction"], scheduled_departure=_scheduled_departure(app, row),
+        status=row["status"],
         note=row["note"], started_at=row["started_at"], ended_at=row["ended_at"], closed_by=row["closed_by"],
         distance_m=round(row["distance_m"], 1), last_fix_at=row["last_fix_at"],
     )
@@ -68,11 +69,13 @@ async def load_trip(con: asyncpg.Connection, trip_id: UUID) -> asyncpg.Record | 
 
 
 def bus_from_row(app: Any, row: asyncpg.Record) -> BusLive:
+    route = RouteGeom.from_row(row["route_id"], row["route_name"], row["polyline"], row["cum_dist_m"])
+    if row["direction"] == "from_campus":
+        route = route.reversed()  # the same road read backwards: stops and ETAs follow it
     return BusLive(
         bus_id=row["bus_id"], trip_id=row["id"], route_id=row["route_id"], driver_id=row["driver_id"],
-        bus_label=row["bus_label"],
-        route=RouteGeom.from_row(row["route_id"], row["route_name"], row["polyline"], row["cum_dist_m"]),
-        started_at=row["started_at"], trip_type=row["type"],
+        bus_label=row["bus_label"], route=route,
+        started_at=row["started_at"], trip_type=row["type"], direction=row["direction"],
         scheduled_departure=_scheduled_departure(app, row), status=row["status"], note=row["note"],
         distance_m=float(row["distance_m"] or 0.0),
     )
@@ -92,8 +95,10 @@ async def load_bus(app: Any, con: asyncpg.Connection, row: asyncpg.Record) -> Bu
     if not bus.route.usable:
         return bus
     tie = float(app.state.settings_store.get_cached("snap_tie_tolerance_m"))
+    order = "desc" if row["direction"] == "from_campus" else "asc"
     stops = await con.fetch(
-        "select id, lat, lng from public.stops where route_id = $1 and active order by sequence", row["route_id"]
+        f"select id, lat, lng from public.stops where route_id = $1 and active order by sequence {order}",  # noqa: S608
+        row["route_id"],
     )
     index = 0
     for stop in stops:
@@ -119,11 +124,12 @@ async def owned_active_trip(con: asyncpg.Connection, driver_id: UUID, trip_id: U
     return row
 
 
-async def _classify(app: Any, con: asyncpg.Connection, route_id: UUID,
-                    started_at: datetime) -> tuple[UUID | None, str]:
+async def _classify(app: Any, con: asyncpg.Connection, route_id: UUID, started_at: datetime,
+                    direction: str) -> tuple[UUID | None, str]:
     rows = await con.fetch(
-        "select id, departure_time, days_of_week from public.schedules where route_id = $1 and active",
-        route_id,
+        """select id, departure_time, days_of_week from public.schedules
+           where route_id = $1 and direction = $2 and active""",
+        route_id, direction,
     )
     slots = [Slot(r["id"], r["departure_time"], tuple(r["days_of_week"])) for r in rows]
     window = float(app.state.settings_store.get_cached("schedule_match_window_s"))
@@ -131,7 +137,8 @@ async def _classify(app: Any, con: asyncpg.Connection, route_id: UUID,
     return (match[0].schedule_id, "scheduled") if match else (None, "ad_hoc")
 
 
-async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, route_id: UUID | None) -> TripOut:
+async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, route_id: UUID | None,
+                     direction: str = "to_campus") -> TripOut:
     bus = await con.fetchrow(
         "select id, default_route_id from public.buses where driver_id = $1 and active", driver_id
     )
@@ -152,16 +159,16 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
     ):
         raise TripAlreadyActive()
     now = clock.now()
-    schedule_id, trip_type = await _classify(app, con, route_id, now)
+    schedule_id, trip_type = await _classify(app, con, route_id, now, direction)
     try:
         async with con.transaction():
             trip_id = await con.fetchval(
-                """insert into public.trips (bus_id, driver_id, route_id, schedule_id, type, started_at)
-                   values ($1, $2, $3, $4, $5, $6) returning id""",
-                bus["id"], driver_id, route_id, schedule_id, trip_type, now,
+                """insert into public.trips (bus_id, driver_id, route_id, schedule_id, type, direction, started_at)
+                   values ($1, $2, $3, $4, $5, $6, $7) returning id""",
+                bus["id"], driver_id, route_id, schedule_id, trip_type, direction, now,
             )
             await write_audit(con, actor_id=driver_id, action="trip.start", target_type="trip",
-                              target_id=trip_id, meta={"type": trip_type})
+                              target_id=trip_id, meta={"type": trip_type, "direction": direction})
     except asyncpg.UniqueViolationError as exc:
         if exc.constraint_name in ACTIVE_TRIP_INDEXES:
             raise TripAlreadyActive() from exc

@@ -252,3 +252,11 @@ Error codes (api p6–7), owner P2 (`errors.py`): VALIDATION_ERROR 400, OTP_INVA
 | Admin notified on Maps quota/key failure | N8 | App reports a map-load failure to `POST /api/v1/client-events` → admin push, or a runbook budget alert only. Choose in P9 | P8+P9 |
 | Delete route/stop | U6, TC17 | Spec has no DELETE: "Deletes are soft (an active flag)". `PATCH {active:false}` → 409 IN_USE while in use | P5 |
 | Min supported app version | rb p2 | `GET /api/v1/config` | P9 |
+
+## V1.1 extensions (ADR-9)
+
+| ID | Requirement | Owner | Status |
+|---|---|---|---|
+| X1 | A trip has a direction (to_campus / from_campus); the driver chooses it at start; schedule slots carry a direction; ETAs and live state follow the reversed route for the return leg | server: `trips/service.py`, `schedules/router.py`; app: driver start screen | server done (`test_direction.py`), app in progress |
+| X2 | Students place a temporary pickup pin for a leg (one waiting request per student) | server + app | planned (migration 0006) |
+| X3 | The driver gets a push and a map marker when the bus nears a waiting student; the student gets a push when the bus nears their pin | server alert engine + app | planned |

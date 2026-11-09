@@ -8,7 +8,7 @@ GET/POST /admin/schedules, PATCH /admin/schedules/{id} (admin; `active: false` i
 from __future__ import annotations
 
 from datetime import time
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import asyncpg
@@ -25,6 +25,7 @@ from app.schemas import ApiModel, UtcDateTime
 public_router = APIRouter(prefix="/schedules", tags=["schedules"])
 admin_router = APIRouter(prefix="/admin/schedules", tags=["admin: schedules"])
 
+Direction = Literal["to_campus", "from_campus"]
 RouteFilter = Annotated[UUID | None, Query(description="Only this route's slots")]
 
 
@@ -52,6 +53,7 @@ class ScheduleIn(_ScheduleFields):
     route_id: UUID
     departure_time: time = Field(description="Local time HH:MM", examples=["08:30"])
     days_of_week: list[int] = Field(min_length=1, max_length=7, examples=[[1, 2, 3, 4, 5, 6]])
+    direction: Direction = "to_campus"
     active: bool = True
 
 
@@ -59,6 +61,7 @@ class SchedulePatch(_ScheduleFields):
     route_id: UUID | None = None
     departure_time: time | None = None
     days_of_week: list[int] | None = Field(default=None, min_length=1, max_length=7)
+    direction: Direction | None = None
     active: bool | None = None
 
 
@@ -67,6 +70,7 @@ class ScheduleOut(ApiModel):
     route_id: UUID
     departure_time: time
     days_of_week: list[int]
+    direction: Direction
 
     @field_serializer("departure_time")
     def _hhmm(self, value: time) -> str:
@@ -88,7 +92,7 @@ class ScheduleAdminPage(ApiModel):
     next_cursor: str | None
 
 
-_COLUMNS = "s.id, s.route_id, s.departure_time, s.days_of_week, s.active, s.created_at"
+_COLUMNS = "s.id, s.route_id, s.departure_time, s.days_of_week, s.direction, s.active, s.created_at"
 
 
 async def _load(con: asyncpg.Connection, schedule_id: UUID) -> ScheduleAdminOut:
@@ -143,9 +147,9 @@ async def create_schedule(body: ScheduleIn, user: AdminUser, con: Conn) -> Sched
     async with con.transaction():
         await _check_route(con, body.route_id)
         schedule_id = await con.fetchval(
-            """insert into public.schedules (route_id, departure_time, days_of_week, active)
-               values ($1, $2, $3, $4) returning id""",
-            body.route_id, body.departure_time, body.days_of_week, body.active,
+            """insert into public.schedules (route_id, departure_time, days_of_week, direction, active)
+               values ($1, $2, $3, $4, $5) returning id""",
+            body.route_id, body.departure_time, body.days_of_week, body.direction, body.active,
         )
         await write_audit(con, actor_id=user.id, action="schedule.create", target_type="schedule",
                           target_id=schedule_id, meta={"route_id": str(body.route_id)})
