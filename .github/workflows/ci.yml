@@ -54,6 +54,9 @@ jobs:
           # 0003 without the optional demo data, like the dev test db.
           PGOPTIONS="-c ctms.seed_demo=off" \
             psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 -f supabase/migrations/0003_seed.sql
+          # 0004 adds users.firebase_uid (Firebase email auth).
+          psql -h localhost -U postgres -d ctms_test -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/0004_firebase_email.sql
 
       - uses: astral-sh/setup-uv@v6
         with:
