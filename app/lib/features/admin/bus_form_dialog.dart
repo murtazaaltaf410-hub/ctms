@@ -8,9 +8,11 @@ class BusFormResult {
     required this.label,
     required this.plate,
     required this.capacity,
+    this.routeId,
   });
 
   final String label, plate;
+  final String? routeId;
 
   /// Student seats; null = not set.
   final int? capacity;
@@ -19,16 +21,18 @@ class BusFormResult {
   Map<String, dynamic> toPatch() => {
     'label': label,
     'plate': plate,
+    'default_route_id': routeId,
     'capacity': capacity,
   };
 }
 
 /// Add or edit a bus. Owns its controllers and disposes them with the dialog.
 class BusFormDialog extends StatefulWidget {
-  const BusFormDialog({super.key, this.bus});
+  const BusFormDialog({super.key, this.bus, this.routes = const []});
 
   /// Null = add a new bus.
   final AdminBus? bus;
+  final List<AdminRoute> routes;
 
   @override
   State<BusFormDialog> createState() => _BusFormDialogState();
@@ -39,6 +43,7 @@ class _BusFormDialogState extends State<BusFormDialog> {
   late final TextEditingController _label;
   late final TextEditingController _plate;
   late final TextEditingController _capacity;
+  String? _routeId;
 
   @override
   void initState() {
@@ -48,6 +53,7 @@ class _BusFormDialogState extends State<BusFormDialog> {
     _capacity = TextEditingController(
       text: widget.bus?.capacity?.toString() ?? '',
     );
+    _routeId = widget.bus?.defaultRouteId;
   }
 
   @override
@@ -75,6 +81,7 @@ class _BusFormDialogState extends State<BusFormDialog> {
       BusFormResult(
         label: _label.text.trim(),
         plate: _plate.text.trim(),
+        routeId: _routeId,
         capacity: capacity.isEmpty ? null : int.parse(capacity),
       ),
     );
@@ -84,6 +91,7 @@ class _BusFormDialogState extends State<BusFormDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.bus == null ? 'Add bus' : 'Edit bus'),
+      scrollable: true,
       content: Form(
         key: _form,
         child: Column(
@@ -112,6 +120,28 @@ class _BusFormDialogState extends State<BusFormDialog> {
                 helperText: 'Seats for students. Needed before approving them.',
               ),
               validator: _capacityError,
+            ),
+            DropdownButtonFormField<String?>(
+              key: const Key('bus-route'),
+              initialValue: _routeId,
+              decoration: const InputDecoration(
+                labelText: 'Student route (optional)',
+                helperText: 'Students can be approved only onto this route.',
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('No student route'),
+                ),
+                for (final route in widget.routes.where(
+                  (route) => route.active,
+                ))
+                  DropdownMenuItem<String?>(
+                    value: route.id,
+                    child: Text(route.name),
+                  ),
+              ],
+              onChanged: (routeId) => setState(() => _routeId = routeId),
             ),
           ],
         ),

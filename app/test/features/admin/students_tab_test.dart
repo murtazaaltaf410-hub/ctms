@@ -1,5 +1,6 @@
 import 'package:ctms/core/models/user.dart';
 import 'package:ctms/features/admin/bus_form_dialog.dart';
+import 'package:ctms/features/admin/admin_models.dart';
 import 'package:ctms/features/admin/students_tab.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -425,6 +426,48 @@ void main() {
       await tester.tap(find.byKey(const Key('bus-save')));
       await tester.pumpAndSettle();
       expect(find.byType(BusFormDialog), findsNothing);
+    });
+
+    testWidgets('returns the selected student route', (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      BusFormResult? result;
+      final route = AdminRoute(
+        id: 'r1',
+        name: 'North Campus Loop',
+        status: 'active',
+        active: true,
+        stopCount: 3,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => result = await showDialog<BusFormResult>(
+                context: context,
+                builder: (_) => BusFormDialog(routes: [route]),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('bus-label')), 'Bus 7');
+      await tester.enterText(find.byKey(const Key('bus-plate')), 'JK01 1234');
+      await tester.tap(find.byKey(const Key('bus-route')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('North Campus Loop'));
+      await tester.pumpAndSettle();
+      tester
+          .widget<FilledButton>(find.byKey(const Key('bus-save')))
+          .onPressed!();
+      await tester.pumpAndSettle();
+      expect(result?.routeId, 'r1');
+      expect(result?.toPatch()['default_route_id'], 'r1');
     });
   });
 }

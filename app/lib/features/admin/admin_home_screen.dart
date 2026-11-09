@@ -265,7 +265,8 @@ class _FleetTab extends ConsumerWidget {
                   title: Text(bus.label),
                   subtitle: Text(
                     '${bus.plate}  ${bus.driverName ?? 'No driver'}\n'
-                    '${bus.capacity == null ? 'Capacity not set' : '${bus.capacity} seats'}',
+                    '${bus.capacity == null ? 'Capacity not set' : '${bus.capacity} seats'}'
+                    '${bus.defaultRouteId == null ? '  ·  No student route' : '  ·  Student route set'}',
                   ),
                   isThreeLine: true,
                   onTap: () => _editBus(tabContext, ref, bus),
@@ -721,9 +722,11 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
     await _createDriver(context, ref);
     return;
   }
+  final routes = await ref.read(adminRoutesProvider.future);
+  if (!context.mounted) return;
   final bus = await showDialog<BusFormResult>(
     context: context,
-    builder: (_) => const BusFormDialog(),
+    builder: (_) => BusFormDialog(routes: routes),
   );
   if (bus == null || !context.mounted) return;
   await _run(
@@ -731,15 +734,22 @@ Future<void> _fleetForm(BuildContext context, WidgetRef ref) async {
     ref,
     () => ref
         .read(adminRepositoryProvider)
-        .createBus(label: bus.label, plate: bus.plate, capacity: bus.capacity),
+        .createBus(
+          label: bus.label,
+          plate: bus.plate,
+          routeId: bus.routeId,
+          capacity: bus.capacity,
+        ),
     refresh: () => refreshStudents(ref),
   );
 }
 
 Future<void> _editBus(BuildContext context, WidgetRef ref, AdminBus bus) async {
+  final routes = await ref.read(adminRoutesProvider.future);
+  if (!context.mounted) return;
   final edited = await showDialog<BusFormResult>(
     context: context,
-    builder: (_) => BusFormDialog(bus: bus),
+    builder: (_) => BusFormDialog(bus: bus, routes: routes),
   );
   if (edited == null || !context.mounted) return;
   await _run(

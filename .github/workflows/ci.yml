@@ -61,7 +61,8 @@ jobs:
             -f supabase/migrations/0006_pickups.sql \
             -f supabase/migrations/0007_driver_accounts.sql \
             -f supabase/migrations/0008_students.sql \
-            -f supabase/migrations/0009_journey.sql
+            -f supabase/migrations/0009_journey.sql \
+            -f supabase/migrations/0010_driver_route_assignments.sql
 
       - uses: astral-sh/setup-uv@v6
         with:
