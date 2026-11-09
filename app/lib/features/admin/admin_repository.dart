@@ -4,7 +4,6 @@ import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/json.dart';
 import '../../core/models/trip.dart';
-import '../../core/models/trip.dart';
 import 'admin_models.dart';
 
 /// Admin-only HTTP boundary. All paths are relative to `/api/v1`.

@@ -4,6 +4,7 @@ export 'bus.dart';
 export 'eta.dart';
 export 'json.dart';
 export 'live_bus.dart';
+export 'pickup.dart';
 export 'route.dart';
 export 'trip.dart';
 export 'user.dart';

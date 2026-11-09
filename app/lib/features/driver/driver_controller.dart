@@ -166,5 +166,12 @@ class DriverController extends Notifier<DriverState> {
   }
 }
 
+/// Students with a waiting pickup pin on the trip's route and leg.
+final waitingStudentsProvider = FutureProvider.autoDispose
+    .family<List<WaitingStudent>, String>(
+      (ref, tripId) =>
+          ref.watch(driverRepositoryProvider).waitingStudents(tripId),
+    );
+
 final driverControllerProvider =
     NotifierProvider<DriverController, DriverState>(DriverController.new);

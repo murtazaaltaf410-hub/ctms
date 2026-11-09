@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
+import '../../core/ui/polyline.dart';
 import '../../core/ui/theme.dart';
 import '../../core/ui/widgets/connection_banner.dart';
 import '../../privacy/app_config.dart';
@@ -17,6 +18,7 @@ import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import '../../realtime/live_messages.dart';
 import '../../realtime/live_providers.dart';
+import 'pickup_screen.dart';
 import 'student_providers.dart';
 
 class StudentHomeScreen extends ConsumerStatefulWidget {
@@ -405,8 +407,80 @@ class _LiveTab extends ConsumerWidget {
             ),
           if (stopId != null)
             _EtaCard(stopId: stopId!, cap: config.etaDisplayCap),
+          const SizedBox(height: 8),
+          _PickupCard(route: detail?.value),
         ],
       ),
+    );
+  }
+}
+
+/// "Request a pickup": a temporary pin the driver sees as a waiting student.
+class _PickupCard extends ConsumerWidget {
+  const _PickupCard({required this.route});
+
+  final RouteDetail? route;
+
+  Future<void> _cancel(
+    BuildContext context,
+    WidgetRef ref,
+    Pickup pickup,
+  ) async {
+    try {
+      await ref.read(studentRepositoryProvider).cancelPickup(pickup.id);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not cancel. Try again.')),
+        );
+      }
+    } finally {
+      ref.invalidate(myPickupProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pickup = ref.watch(myPickupProvider).value;
+    if (pickup != null) {
+      final minutes = pickup.expiresAt.difference(DateTime.now()).inMinutes;
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.place),
+          title: Text('Pickup requested · ${pickup.direction.label}'),
+          subtitle: Text(
+            [
+              pickup.routeName,
+              if (pickup.label != null) pickup.label!,
+              if (minutes > 0) 'expires in $minutes min',
+            ].join(' · '),
+          ),
+          trailing: TextButton(
+            onPressed: () => _cancel(context, ref, pickup),
+            child: const Text('Cancel'),
+          ),
+        ),
+      );
+    }
+    final current = route;
+    return OutlinedButton.icon(
+      onPressed: current == null
+          ? null
+          : () async {
+              final requested = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => PickupScreen(route: current)),
+              );
+              if (requested == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Pickup requested. The driver will be told.'),
+                  ),
+                );
+              }
+            },
+      icon: const Icon(Icons.place_outlined),
+      label: const Text('Request a pickup'),
     );
   }
 }
@@ -476,7 +550,7 @@ class _BusMap extends StatelessWidget {
               : {
                   Polyline(
                     polylineId: const PolylineId('route'),
-                    points: _decodePolyline(route!.polyline!),
+                    points: decodePolyline(route!.polyline!),
                     color: AppTheme.seed,
                     width: 5,
                   ),
@@ -752,31 +826,6 @@ class _RetryCard extends StatelessWidget {
       ),
     ),
   );
-}
-
-List<LatLng> _decodePolyline(String encoded) {
-  final points = <LatLng>[];
-  var index = 0;
-  var lat = 0;
-  var lng = 0;
-  while (index < encoded.length) {
-    int decode() {
-      var result = 0;
-      var shift = 0;
-      int byte;
-      do {
-        byte = encoded.codeUnitAt(index++) - 63;
-        result |= (byte & 0x1f) << shift;
-        shift += 5;
-      } while (byte >= 0x20 && index < encoded.length);
-      return result & 1 != 0 ? ~(result >> 1) : result >> 1;
-    }
-
-    lat += decode();
-    lng += decode();
-    points.add(LatLng(lat / 1e5, lng / 1e5));
-  }
-  return points;
 }
 
 Color _stateColor(BusState state) => switch (state) {

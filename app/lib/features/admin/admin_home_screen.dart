@@ -6,7 +6,6 @@ import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/live_bus.dart';
 import '../../core/models/trip.dart';
-import '../../core/models/trip.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import 'admin_models.dart';

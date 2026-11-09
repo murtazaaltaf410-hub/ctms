@@ -86,6 +86,11 @@ final alertSettingsProvider =
       AlertSettingsNotifier.new,
     );
 
+/// The student's waiting pickup pin, or null.
+final myPickupProvider = FutureProvider.autoDispose<Pickup?>(
+  (ref) => ref.watch(studentRepositoryProvider).myPickup(),
+);
+
 final sentAlertsProvider = FutureProvider<List<SentAlert>>(
   (ref) => ref.watch(studentRepositoryProvider).sentAlerts(),
 );

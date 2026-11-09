@@ -99,5 +99,31 @@ class StudentRepository {
     return parseList(json['items'], SentAlert.fromJson);
   }
 
+  Future<Pickup?> myPickup() async {
+    final json = await _api.get('me/pickup');
+    return json == null ? null : Pickup.fromJson(json as Json);
+  }
+
+  Future<Pickup> createPickup({
+    required String routeId,
+    required TripDirection direction,
+    required double lat,
+    required double lng,
+    String? label,
+  }) async => Pickup.fromJson(
+    await _api.post(
+      'pickups',
+      body: {
+        'route_id': routeId,
+        'direction': direction.wire,
+        'lat': lat,
+        'lng': lng,
+        'label': ?label,
+      },
+    ) as Json,
+  );
+
+  Future<void> cancelPickup(String id) => _api.delete('pickups/$id');
+
   Future<void> deleteAccount() => _api.delete('me');
 }
