@@ -50,3 +50,4 @@ app/ios/Runner/GoogleService-Info.plist
 # Firebase / Google credentials
 *service-account*.json
 firebase-adminsdk*.json
+opencode.json
