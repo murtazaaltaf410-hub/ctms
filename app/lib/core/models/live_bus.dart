@@ -1,4 +1,5 @@
 import 'json.dart';
+import 'trip.dart';
 
 /// Server-computed freshness of a bus (`/buses/live` → `state`).
 enum BusState {
@@ -19,6 +20,7 @@ class LiveBus {
     required this.tripId,
     required this.routeId,
     required this.routeName,
+    this.direction = TripDirection.toCampus,
     required this.lat,
     required this.lng,
     required this.heading,
@@ -37,6 +39,7 @@ class LiveBus {
     tripId: json['trip_id'] as String,
     routeId: json['route_id'] as String,
     routeName: json['route_name'] as String,
+    direction: TripDirection.parse(json['direction']),
     lat: toDouble(json['lat']),
     lng: toDouble(json['lng']),
     heading: toDoubleOrNull(json['heading']),
@@ -54,6 +57,7 @@ class LiveBus {
   final String tripId;
   final String routeId;
   final String routeName;
+  final TripDirection direction;
   final double lat;
   final double lng;
   final double? heading;
@@ -105,6 +109,7 @@ class LiveBus {
     tripId: tripId,
     routeId: routeId,
     routeName: routeName,
+    direction: direction,
     lat: lat ?? this.lat,
     lng: lng ?? this.lng,
     heading: heading ?? this.heading,

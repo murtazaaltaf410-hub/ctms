@@ -17,10 +17,10 @@ class DriverRepository {
     return parseList(json['items'], RouteSummary.fromJson);
   }
 
-  Future<Trip> startTrip(String? routeId) async {
+  Future<Trip> startTrip(String? routeId, TripDirection direction) async {
     final json = await _api.post(
       'trips/start',
-      body: routeId == null ? null : {'route_id': routeId},
+      body: {'direction': direction.wire, 'route_id': ?routeId},
     );
     return Trip.fromJson(json as Json);
   }

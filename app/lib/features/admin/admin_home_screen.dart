@@ -5,6 +5,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/live_bus.dart';
+import '../../core/models/trip.dart';
+import '../../core/models/trip.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import 'admin_models.dart';
@@ -360,7 +362,7 @@ class _SchedulesTab extends ConsumerWidget {
           }
           return ListTile(
             title: Text(
-              '${route?.name ?? 'Unknown route'} • ${schedule.departureTime}',
+              '${route?.name ?? 'Unknown route'} • ${schedule.departureTime} • ${schedule.direction.label}',
             ),
             subtitle: Text(_days(schedule.days)),
             trailing: Switch(
@@ -859,6 +861,7 @@ Future<void> _scheduleForm(
   var routeId = activeRoutes.first.id;
   final time = TextEditingController(text: '08:30');
   final selected = <int>{1, 2, 3, 4, 5, 6};
+  var direction = TripDirection.toCampus;
 
   await showDialog<void>(
     context: context,
@@ -884,6 +887,19 @@ Future<void> _scheduleForm(
                 }
               },
               decoration: const InputDecoration(labelText: 'Route'),
+            ),
+            DropdownButtonFormField<TripDirection>(
+              initialValue: direction,
+              items: [
+                for (final d in TripDirection.values)
+                  DropdownMenuItem(value: d, child: Text(d.label)),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setDialogState(() => direction = value);
+                }
+              },
+              decoration: const InputDecoration(labelText: 'Leg'),
             ),
             TextField(
               controller: time,
@@ -925,6 +941,7 @@ Future<void> _scheduleForm(
                       routeId: routeId,
                       time: time.text,
                       days: days,
+                      direction: direction,
                     ),
               );
             },

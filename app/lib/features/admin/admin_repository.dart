@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/json.dart';
+import '../../core/models/trip.dart';
+import '../../core/models/trip.dart';
 import 'admin_models.dart';
 
 /// Admin-only HTTP boundary. All paths are relative to `/api/v1`.
@@ -86,12 +88,14 @@ class AdminRepository {
     required String routeId,
     required String time,
     required List<int> days,
+    TripDirection direction = TripDirection.toCampus,
   }) => _api.post(
     'admin/schedules',
     body: {
       'route_id': routeId,
       'departure_time': time,
       'days_of_week': days,
+      'direction': direction.wire,
       'active': true,
     },
   );

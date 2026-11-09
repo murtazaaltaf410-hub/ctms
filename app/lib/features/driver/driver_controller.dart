@@ -109,10 +109,10 @@ class DriverController extends Notifier<DriverState> {
     }
   }
 
-  Future<void> start(String? routeId) async {
+  Future<void> start(String? routeId, TripDirection direction) async {
     state = state.copyWith(busy: true, clearError: true);
     try {
-      final trip = await _repository.startTrip(routeId);
+      final trip = await _repository.startTrip(routeId, direction);
       await _tracker.start(trip, await _batchLimit);
       state = state.copyWith(trip: trip, busy: false, buffered: 0);
     } on ApiException catch (e) {

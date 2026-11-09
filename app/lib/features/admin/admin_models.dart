@@ -1,4 +1,5 @@
 import '../../core/models/json.dart';
+import '../../core/models/trip.dart';
 
 class AdminBus {
   const AdminBus({
@@ -106,6 +107,7 @@ class AdminSchedule {
     required this.departureTime,
     required this.days,
     required this.active,
+    this.direction = TripDirection.toCampus,
   });
   factory AdminSchedule.fromJson(Json j) => AdminSchedule(
     id: j['id'] as String,
@@ -116,10 +118,12 @@ class AdminSchedule {
         .map((e) => e.toInt())
         .toList(),
     active: j['active'] as bool,
+    direction: TripDirection.parse(j['direction']),
   );
   final String id, routeId, departureTime;
   final List<int> days;
   final bool active;
+  final TripDirection direction;
 }
 
 class AdminAnnouncement {

@@ -17,6 +17,11 @@ class DriverHomeScreen extends ConsumerStatefulWidget {
 
 class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
   String? _routeId;
+
+  /// Mornings default to the way in, afternoons and evenings to the way home.
+  TripDirection _direction = DateTime.now().hour < 12
+      ? TripDirection.toCampus
+      : TripDirection.fromCampus;
   final _note = TextEditingController();
 
   @override
@@ -34,7 +39,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
       await _showLocationGate(gate);
       return;
     }
-    await ref.read(driverControllerProvider.notifier).start(_routeId);
+    await ref.read(driverControllerProvider.notifier).start(_routeId, _direction);
   }
 
   Future<void> _showLocationGate(LocationGate gate) async {
@@ -133,6 +138,25 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
                     ? null
                     : (value) => setState(() => _routeId = value),
               ),
+              const SizedBox(height: 16),
+              SegmentedButton<TripDirection>(
+                segments: [
+                  for (final direction in TripDirection.values)
+                    ButtonSegment(
+                      value: direction,
+                      label: Text(direction.label),
+                      icon: Icon(
+                        direction == TripDirection.toCampus
+                            ? Icons.school_outlined
+                            : Icons.home_outlined,
+                      ),
+                    ),
+                ],
+                selected: {_direction},
+                onSelectionChanged: state.busy
+                    ? null
+                    : (value) => setState(() => _direction = value.first),
+              ),
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: state.busy ? null : _start,
@@ -144,7 +168,9 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
                 trip.routeName,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              Text('Bus ${trip.busLabel} · Trip in progress'),
+              Text(
+                'Bus ${trip.busLabel} · ${trip.direction.label} · Trip in progress',
+              ),
               const SizedBox(height: 16),
               _StatusChip(status: trip.status),
               if (state.buffered > 0)

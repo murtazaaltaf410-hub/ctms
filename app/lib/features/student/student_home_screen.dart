@@ -457,7 +457,8 @@ class _BusMap extends StatelessWidget {
                 position: LatLng(bus.lat, bus.lng),
                 infoWindow: InfoWindow(
                   title: bus.label,
-                  snippet: '${bus.routeName} · ${_statusText(bus.status)}',
+                  snippet:
+                      '${bus.routeName} · ${bus.direction.label} · ${_statusText(bus.status)}',
                 ),
               ),
             for (final stop in route?.stops ?? <Stop>[])
@@ -512,7 +513,7 @@ class _BusList extends StatelessWidget {
             leading: Icon(Icons.directions_bus, color: _stateColor(state)),
             title: Text(bus.label),
             subtitle: Text(
-              '${bus.routeName}\n${_statusText(bus.status)}${bus.note == null ? '' : ': ${bus.note}'}',
+              '${bus.routeName} · ${bus.direction.label}\n${_statusText(bus.status)}${bus.note == null ? '' : ': ${bus.note}'}',
             ),
             isThreeLine: true,
             trailing: Text(_stateText(state), textAlign: TextAlign.end),

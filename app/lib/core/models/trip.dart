@@ -13,6 +13,23 @@ enum TripStatus {
       values.firstWhere((s) => s.wire == value);
 }
 
+/// Which leg a trip drives: the route in stored stop order, or reversed.
+enum TripDirection {
+  toCampus('to_campus', 'To campus'),
+  fromCampus('from_campus', 'From campus');
+
+  const TripDirection(this.wire, this.label);
+
+  final String wire;
+  final String label;
+
+  /// Unknown or missing values (an older server) read as `to_campus`.
+  static TripDirection parse(Object? value) => values.firstWhere(
+    (d) => d.wire == value,
+    orElse: () => TripDirection.toCampus,
+  );
+}
+
 enum TripType {
   scheduled('scheduled'),
   adHoc('ad_hoc');
@@ -36,6 +53,7 @@ class Trip {
     required this.driverId,
     required this.scheduleId,
     required this.type,
+    this.direction = TripDirection.toCampus,
     required this.scheduledDeparture,
     required this.status,
     required this.note,
@@ -57,6 +75,7 @@ class Trip {
     driverId: json['driver_id'] as String,
     scheduleId: json['schedule_id'] as String?,
     type: TripType.parse(json['type'] as String),
+    direction: TripDirection.parse(json['direction']),
     scheduledDeparture: parseTimeOrNull(json['scheduled_departure']),
     status: TripStatus.parse(json['status'] as String),
     note: json['note'] as String?,
@@ -77,6 +96,7 @@ class Trip {
   final String driverId;
   final String? scheduleId;
   final TripType type;
+  final TripDirection direction;
   final DateTime? scheduledDeparture;
   final TripStatus status;
   final String? note;
