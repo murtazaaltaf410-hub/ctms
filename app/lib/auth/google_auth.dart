@@ -53,6 +53,13 @@ class GoogleSignInSource implements GoogleIdTokenSource {
       return idToken;
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) return null;
+      if (e.code == GoogleSignInExceptionCode.clientConfigurationError) {
+        throw const SignInFlowException(
+          'Google sign-in is not set up for this build yet. The office needs '
+          'to enable the Google provider in Firebase and add this app\'s '
+          'SHA-1 key, then a new build is needed.',
+        );
+      }
       throw SignInFlowException('Google sign-in failed (${e.code.name}).');
     }
   }
