@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:ctms/core/api/api_client.dart';
 import 'package:ctms/core/ui/theme.dart';
-import 'package:ctms/core/ui/theme.dart';
 import 'package:ctms/features/student/journey_push.dart';
 import 'package:ctms/features/student/registration_providers.dart';
 import 'package:ctms/features/student/student_home_screen.dart';
