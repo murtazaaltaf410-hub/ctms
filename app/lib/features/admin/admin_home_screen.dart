@@ -3,11 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
-import '../../core/models/live_bus.dart';
 import '../../core/models/trip.dart';
-import '../../core/ui/maps/transit_map.dart';
-import '../../core/ui/maps/transit_map_models.dart';
-import '../../core/ui/polyline.dart';
+import '../../core/ui/theme.dart';
+import '../../core/ui/widgets/ctms_nav_bar.dart';
+import '../../core/ui/widgets/ctms_rail.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../realtime/live_providers.dart';
 import '../../core/util/clock_format.dart';
@@ -16,6 +15,7 @@ import 'campus_location_screen.dart';
 import 'admin_providers.dart';
 import 'bus_form_dialog.dart';
 import 'driver_form_screen.dart';
+import 'fleet_pulse.dart';
 import 'route_map_editor.dart';
 import 'students_tab.dart';
 
@@ -27,86 +27,192 @@ class AdminHomeScreen extends ConsumerStatefulWidget {
   ConsumerState<AdminHomeScreen> createState() => _AdminHomeScreenState();
 }
 
+// Section indexes, in the order of [_titles] and the tablet rail.
+const _liveSection = 0;
+const _fleetSection = 1;
+const _routesSection = 2;
+const _moreSection = 6;
+
 class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
-  var _tab = 0;
+  var _tab = _liveSection;
+  var _fleetTab = 0;
+  var _fleetRequest = 0;
+
+  static const _railItems = [
+    CtmsNavItem(
+      icon: Icons.radar_outlined,
+      selectedIcon: Icons.radar,
+      label: 'Live fleet',
+    ),
+    CtmsNavItem(
+      icon: Icons.directions_bus_outlined,
+      selectedIcon: Icons.directions_bus,
+      label: 'Fleet',
+    ),
+    CtmsNavItem(
+      icon: Icons.route_outlined,
+      selectedIcon: Icons.route,
+      label: 'Routes',
+    ),
+    CtmsNavItem(
+      icon: Icons.calendar_month_outlined,
+      selectedIcon: Icons.calendar_month,
+      label: 'Schedule',
+    ),
+    CtmsNavItem(
+      icon: Icons.campaign_outlined,
+      selectedIcon: Icons.campaign,
+      label: 'Notices',
+    ),
+    CtmsNavItem(
+      icon: Icons.bar_chart_outlined,
+      selectedIcon: Icons.bar_chart,
+      label: 'Reports',
+    ),
+    CtmsNavItem(
+      icon: Icons.more_horiz,
+      selectedIcon: Icons.more_horiz,
+      label: 'More',
+    ),
+  ];
+
+  // Phone: Live, Fleet, Routes, More. Schedule, notices and reports sit under More.
+  static const _phoneItems = [
+    CtmsNavItem(
+      icon: Icons.radar_outlined,
+      selectedIcon: Icons.radar,
+      label: 'Live',
+    ),
+    CtmsNavItem(
+      icon: Icons.directions_bus_outlined,
+      selectedIcon: Icons.directions_bus,
+      label: 'Fleet',
+    ),
+    CtmsNavItem(
+      icon: Icons.route_outlined,
+      selectedIcon: Icons.route,
+      label: 'Routes',
+    ),
+    CtmsNavItem(
+      icon: Icons.more_horiz,
+      selectedIcon: Icons.more_horiz,
+      label: 'More',
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_titles[_tab]),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _refresh,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 600;
+        final content = _section(wide);
+        if (wide) {
+          return Scaffold(
+            body: Row(
+              children: [
+                CtmsRail(
+                  items: _railItems,
+                  selectedIndex: _tab,
+                  onSelected: (index) => setState(() => _tab = index),
+                  header: Text('CTMS', style: CtmsText.headline(context, 24)),
+                  trailing: TextButton.icon(
+                    onPressed: _signOut,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sign out'),
+                  ),
+                ),
+                Expanded(child: content),
+              ],
+            ),
+          );
+        }
+        return Scaffold(
+          appBar: _tab == _liveSection ? null : _appBar(),
+          // Mount only the active section. Several sections have a floating action
+          // button, and keeping all of them in an IndexedStack duplicates its Hero.
+          body: _tab == _liveSection ? SafeArea(child: content) : content,
+          bottomNavigationBar: CtmsNavBar(
+            items: _phoneItems,
+            selectedIndex: _tab <= _routesSection ? _tab : 3,
+            onSelected: (index) => setState(
+              () => _tab = index <= _routesSection ? index : _moreSection,
+            ),
           ),
-          IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: () =>
-                ref.read(authControllerProvider.notifier).signOut(),
-          ),
-        ],
-      ),
-      // Mount only the active section. Several sections have a floating action
-      // button, and keeping all of them in an IndexedStack duplicates its Hero.
-      body: switch (_tab) {
-        0 => const _LiveTab(),
-        1 => const _FleetTab(),
-        2 => const _RoutesTab(),
-        3 => const _SchedulesTab(),
-        4 => const _AnnouncementsTab(),
-        5 => const _ReportsTab(),
-        _ => const _MoreTab(),
+        );
       },
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.radar_outlined),
-            selectedIcon: Icon(Icons.radar),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.directions_bus_outlined),
-            selectedIcon: Icon(Icons.directions_bus),
-            label: 'Fleet',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.route_outlined),
-            selectedIcon: Icon(Icons.route),
-            label: 'Routes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.schedule_outlined),
-            selectedIcon: Icon(Icons.schedule),
-            label: 'Schedule',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.campaign_outlined),
-            selectedIcon: Icon(Icons.campaign),
-            label: 'Alerts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.assessment_outlined),
-            selectedIcon: Icon(Icons.assessment),
-            label: 'Reports',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.more_horiz),
-            selectedIcon: Icon(Icons.more),
-            label: 'More',
-          ),
-        ],
-      ),
     );
   }
+
+  PreferredSizeWidget _appBar() => AppBar(
+    title: Text(_titles[_tab]),
+    actions: [
+      IconButton(
+        tooltip: 'Refresh',
+        icon: const Icon(Icons.refresh),
+        onPressed: _refresh,
+      ),
+      IconButton(
+        tooltip: 'Sign out',
+        icon: const Icon(Icons.logout),
+        onPressed: _signOut,
+      ),
+    ],
+  );
+
+  /// Body of the current section. On wide screens non-live sections get their
+  /// own title bar, since the rail replaces the page-level app bar.
+  Widget _section(bool wide) {
+    final body = switch (_tab) {
+      _liveSection => FleetPulse(
+        wide: wide,
+        eyebrow: _eyebrow(),
+        onOpen: _open,
+        onRefresh: _refreshAsync,
+        onSignOut: wide ? null : _signOut,
+      ),
+      _fleetSection => _FleetTab(
+        key: ValueKey('fleet-$_fleetRequest'),
+        initialTab: _fleetTab,
+      ),
+      2 => const _RoutesTab(),
+      3 => const _SchedulesTab(),
+      4 => const _AnnouncementsTab(),
+      5 => const _ReportsTab(),
+      _ => _MoreTab(onOpenSection: (tab) => setState(() => _tab = tab)),
+    };
+    if (!wide || _tab == _liveSection) return body;
+    return Scaffold(appBar: _appBar(), body: body);
+  }
+
+  String _eyebrow() {
+    final name = ref.watch(authControllerProvider).user?.name;
+    return name == null || name.isEmpty ? 'Admin' : 'Admin · $name';
+  }
+
+  void _open(PulseTarget target) => setState(() {
+    switch (target) {
+      case PulseTarget.students:
+        _tab = _fleetSection;
+        _fleetTab = 2;
+      case PulseTarget.buses:
+        _tab = _fleetSection;
+        _fleetTab = 0;
+      case PulseTarget.routes:
+        _tab = _routesSection;
+    }
+    _fleetRequest++;
+  });
+
+  void _signOut() => ref.read(authControllerProvider.notifier).signOut();
 
   void _refresh() {
     refreshAdmin(ref);
     ref.read(liveBusesProvider.notifier).refetch();
+  }
+
+  Future<void> _refreshAsync() async {
+    refreshAdmin(ref);
+    await ref.read(liveBusesProvider.notifier).refetch();
   }
 }
 
@@ -120,133 +226,16 @@ const _titles = [
   'Administration',
 ];
 
-final _activeRouteDetailsProvider =
-    FutureProvider.family<List<AdminRoute>, String>((ref, routeKey) async {
-      if (routeKey.isEmpty) return const [];
-      final repository = ref.watch(adminRepositoryProvider);
-      return Future.wait(routeKey.split(',').map(repository.route));
-    });
-
-class _LiveTab extends ConsumerWidget {
-  const _LiveTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final buses = ref.watch(liveBusesProvider).values.toList()
-      ..sort((a, b) => a.label.compareTo(b.label));
-    final routeKey = (buses.map((bus) => bus.routeId).toSet().toList()..sort())
-        .join(',');
-    final routes =
-        ref.watch(_activeRouteDetailsProvider(routeKey)).asData?.value ??
-        const <AdminRoute>[];
-
-    return RefreshIndicator(
-      onRefresh: () => ref.read(liveBusesProvider.notifier).refetch(),
-      child: buses.isEmpty
-          ? ListView(
-              children: const [
-                SizedBox(height: 180),
-                EmptyView(
-                  title: 'No active trips',
-                  message: 'Buses appear here after a driver starts a trip.',
-                  icon: Icons.directions_bus_filled_outlined,
-                ),
-              ],
-            )
-          : ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                TransitMapPreview(
-                  title: 'Live fleet',
-                  data: TransitMapData(
-                    buses: [
-                      for (final bus in buses)
-                        TransitMapBus(
-                          id: bus.busId,
-                          label: bus.label,
-                          position: MapCoordinate(bus.lat, bus.lng),
-                          heading: bus.heading,
-                          detail:
-                              '${bus.routeName} · ${bus.state.name} · last seen ${formatClock(bus.lastFixAt)}',
-                        ),
-                    ],
-                    routes: [
-                      for (var index = 0; index < routes.length; index++)
-                        _asTransitRoute(routes[index], index),
-                    ],
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 16, bottom: 4),
-                  child: Text('Active buses'),
-                ),
-                ...buses.map((bus) => _liveCard(context, bus)),
-              ],
-            ),
-    );
-  }
-
-  TransitMapRoute _asTransitRoute(AdminRoute route, int index) {
-    const colors = [Colors.blue, Colors.teal, Colors.deepOrange, Colors.purple];
-    return TransitMapRoute(
-      id: route.id,
-      name: route.name,
-      points: route.polyline == null
-          ? const []
-          : [
-              for (final point in decodePolyline(route.polyline!))
-                MapCoordinate(point.latitude, point.longitude),
-            ],
-      stops: [
-        for (final stop in route.stops)
-          TransitMapStop(
-            id: stop.id,
-            label: stop.name,
-            position: MapCoordinate(stop.lat, stop.lng),
-            routeId: route.id,
-          ),
-      ],
-      color: colors[index % colors.length],
-    );
-  }
-
-  Widget _liveCard(BuildContext context, LiveBus bus) {
-    final color = switch (bus.state) {
-      BusState.live => Colors.green,
-      BusState.stopped => Colors.amber,
-      BusState.stale => Colors.orange,
-      BusState.offline => Colors.red,
-    };
-
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color,
-          child: const Icon(Icons.directions_bus, color: Colors.white),
-        ),
-        title: Text(bus.label),
-        subtitle: Text(
-          '${bus.routeName}\n${bus.status.replaceAll('_', ' ')}'
-          '${bus.note == null ? '' : ': ${bus.note}'}\n'
-          '${bus.lat.toStringAsFixed(5)}, ${bus.lng.toStringAsFixed(5)}',
-        ),
-        isThreeLine: true,
-        trailing: Text(
-          bus.state.name,
-          style: TextStyle(color: color, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-}
-
 class _FleetTab extends ConsumerWidget {
-  const _FleetTab();
+  const _FleetTab({super.key, this.initialTab = 0});
+
+  final int initialTab;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
       length: 3,
+      initialIndex: initialTab,
       child: Builder(
         builder: (tabContext) => Scaffold(
           appBar: const TabBar(
@@ -569,12 +558,36 @@ String tripTimesText(TripReport trip) {
 }
 
 class _MoreTab extends ConsumerWidget {
-  const _MoreTab();
+  const _MoreTab({required this.onOpenSection});
+
+  final ValueChanged<int> onOpenSection;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListView(
       children: [
+        ListTile(
+          key: const Key('more-schedule'),
+          leading: const Icon(Icons.calendar_month_outlined),
+          title: const Text('Schedule'),
+          subtitle: const Text('Timetable slots'),
+          onTap: () => onOpenSection(3),
+        ),
+        ListTile(
+          key: const Key('more-notices'),
+          leading: const Icon(Icons.campaign_outlined),
+          title: const Text('Announcements'),
+          subtitle: const Text('Notices to students and drivers'),
+          onTap: () => onOpenSection(4),
+        ),
+        ListTile(
+          key: const Key('more-reports'),
+          leading: const Icon(Icons.bar_chart_outlined),
+          title: const Text('Reports'),
+          subtitle: const Text('Trip history and CSV export'),
+          onTap: () => onOpenSection(5),
+        ),
+        const Divider(),
         ListTile(
           leading: const Icon(Icons.admin_panel_settings_outlined),
           title: const Text('Administrators'),
