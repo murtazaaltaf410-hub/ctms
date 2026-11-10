@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     pickup_label_max_chars: int = 60
     nearest_route_max_m: float = 2000        # GET /routes/nearest: farther than this from every route = null
 
+    # --- V1.3 identity: photos and the digital bus card (migration 0011) -----------
+    student_photo_max_bytes: int = 307200    # PUT /me/registration/photo and the admin driver photo
+    bus_card_valid_until: str | None = None  # ISO date; None = the next 31 July (settings key of the same name)
+    rate_bus_verify_per_ip: int = 30         # public GET /bus-card/verify
+    rate_bus_verify_per_ip_window_s: int = 60
+
+    # --- V1.3 stop alerts (migration 0012) ---------------------------------------
+    stopped_alert_after_s: float = 300       # bus stationary this long: auto "Stopped" status + driver prompt
+    stop_alert_check_s: float = 30           # how often the stop-alert job runs
+
     # --- Phase 9: GET /api/v1/config (runbook: minimum supported app version) ------
     # Also overridable per environment with a `min_app_version` row in the settings table.
     min_app_version: str = "1.0.0"
