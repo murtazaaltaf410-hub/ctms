@@ -46,7 +46,9 @@ async def test_consent_recorded_once(client, google_login, con):
     assert await con.fetchval("select count(*) from public.consents") == 1
 
 
-async def test_tc20_delete_student_removes_personal_data(client, google_login, con, create_user, create_bus):
+async def test_tc20_delete_student_removes_personal_data(
+    client, google_login, con, create_user, create_bus, delete_account
+):
     tokens = await google_login("sub-del", "leaving@gmail.com", "Leaving")
     uid = tokens["user"]["id"]
     headers = bearer(tokens["access_token"])
@@ -76,8 +78,7 @@ async def test_tc20_delete_student_removes_personal_data(client, google_login, c
     )
 
     assert await con.fetchval("select count(*) from public.student_profiles where user_id = $1", uid) == 1
-    resp = await client.delete("/api/v1/me", headers=headers)
-    assert resp.status_code == 204
+    await delete_account(uid)
 
     for table, col in (
         ("users", "id"),
@@ -98,7 +99,12 @@ async def test_tc20_delete_student_removes_personal_data(client, google_login, c
     assert resp.status_code == 401 and err(resp) == "TOKEN_INVALID"
 
 
-async def test_delete_me_is_student_only(client, create_user, driver_login, google_login, con):
+async def test_delete_me_is_refused_for_everyone(client, create_user, driver_login, google_login, con):
+    student = await google_login("sub-stu", "stu@uok.edu.in")
+    resp = await client.delete("/api/v1/me", headers=bearer(student["access_token"]))
+    assert resp.status_code == 403 and err(resp) == "FORBIDDEN_ROLE"
+    assert "deregistration" in resp.json()["error"]["message"]
+    assert (await client.get("/api/v1/me", headers=bearer(student["access_token"]))).status_code == 200
     await con.execute("insert into public.admin_allowlist (email) values ('adm@uok.edu.in')")
     admin = await google_login("sub-adm", "adm@uok.edu.in")
     resp = await client.delete("/api/v1/me", headers=bearer(admin["access_token"]))

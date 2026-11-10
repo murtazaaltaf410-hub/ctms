@@ -227,6 +227,17 @@ def create_user(con: asyncpg.Connection) -> Callable:
 
 
 @pytest.fixture
+def delete_account(app, con: asyncpg.Connection) -> Callable:
+    """Students cannot call DELETE /me (V1.3): tests delete an account the way an approved deregistration does."""
+    from app.modules.me.accounts import delete_user_account
+
+    async def go(user_id: UUID | str) -> None:
+        await delete_user_account(app, con, UUID(str(user_id)), actor_id=None)
+
+    return go
+
+
+@pytest.fixture
 def create_bus(con: asyncpg.Connection) -> Callable:
     async def make(driver_id: UUID | None = None, *, label: str = "Bus T", plate: str = "JK01TEST01") -> UUID:
         return await con.fetchval(

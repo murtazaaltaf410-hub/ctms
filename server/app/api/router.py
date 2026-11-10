@@ -51,3 +51,10 @@ api_router.include_router(pickups_router)
 from app.modules.appconfig.router import router as appconfig_router  # noqa: E402
 
 api_router.include_router(appconfig_router)
+
+# --- V1.3: identity (bus card, my bus + driver card, driver profile) ---------------------
+from app.modules.buscard.router import router as buscard_router  # noqa: E402
+from app.modules.identity.people import router as people_router  # noqa: E402
+
+api_router.include_router(buscard_router)
+api_router.include_router(people_router)

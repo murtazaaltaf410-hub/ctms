@@ -9,7 +9,7 @@ PERSONAL = ["student_locations", "push_tokens", "alert_settings", "sessions", "c
 
 
 async def test_tc20_delete_account_removes_personal_data_and_stops_alerts(
-    client, con, live_app, push, sim_trip, start_trip, google_login
+    client, con, live_app, push, sim_trip, start_trip, google_login, delete_account
 ):
     route, driver, _trip, player = await sim_trip()
     s = await alert_student(client, google_login, 31, *route.stop_point(1))
@@ -23,8 +23,7 @@ async def test_tc20_delete_account_removes_personal_data_and_stops_alerts(
     assert len(push.sent) == 1  # alerted once on this trip
     assert await con.fetchval("select count(*) from public.alert_log where student_id = $1", s.id) == 1
 
-    resp = await client.delete("/api/v1/me", headers=s.headers)
-    assert resp.status_code == 204
+    await delete_account(s.id)
     for table in PERSONAL:
         assert await con.fetchval(f"select count(*) from public.{table} where user_id = $1", s.id) == 0, table
     assert await con.fetchval("select count(*) from public.alert_log where student_id = $1", s.id) == 0

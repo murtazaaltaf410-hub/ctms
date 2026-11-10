@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from app.modules.admin.admins import router as admins_router
 from app.modules.admin.drivers import router as drivers_router
 from app.modules.buses.router import router as buses_router
+from app.modules.identity.deregistration import router as deregistration_router
 from app.modules.reports.router import router as reports_router
 from app.modules.routes.router import admin_router as admin_routes_router
 from app.modules.routes.router import public_router as routes_router
@@ -21,5 +22,6 @@ from app.modules.students.admin import router as students_admin_router
 
 router = APIRouter()
 for sub in (routes_router, schedules_router, buses_router, drivers_router, admin_routes_router,
-            admin_schedules_router, admins_router, reports_router, settings_router, students_admin_router):
+            admin_schedules_router, admins_router, reports_router, settings_router, students_admin_router,
+            deregistration_router):
     router.include_router(sub)

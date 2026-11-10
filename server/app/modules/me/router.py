@@ -1,19 +1,18 @@
-"""GET/PATCH/DELETE /me, PUT /me/push-token, PUT /me/consents (extension).
+"""GET/PATCH /me, DELETE /me (always 403; see deregistration), PUT /me/push-token, PUT /me/consents (extension).
 
 P4 adds POST /me/location and PUT /me/alert-settings in its own router.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Response, status
 from pydantic import Field
 
-from app.audit import scrub_user_audit, write_audit
 from app.db import Conn
-from app.deps import AuthUser, CurrentUser, require_role
-from app.live import USER_DELETED, publish
+from app.deps import AuthUser
+from app.errors import ForbiddenRole
 from app.modules.auth.schemas import UserOut
 from app.modules.auth.service import load_user_out
 from app.schemas import ApiModel
@@ -72,13 +71,9 @@ async def put_consent(body: ConsentIn, user: AuthUser, con: Conn) -> Response:
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-async def delete_me(request: Request, user: Annotated[CurrentUser, Depends(require_role("student"))],
-                    con: Conn) -> Response:
-    """Students only. Deletes the account and, by cascade, sessions, push tokens, consents, the latest
-    location, alert settings and the alert log (U2, TC20). Audit rows keep no personal data."""
-    async with con.transaction():
-        await scrub_user_audit(con, user.id)
-        await write_audit(con, actor_id=None, action="account.delete", target_type="user", target_id=user.id)
-        await con.execute("delete from public.users where id = $1", user.id)
-    await publish(request.app, USER_DELETED, user_id=user.id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(user: AuthUser) -> Response:
+    """Nobody deletes their own account here. Students request deregistration
+    (`POST /me/deregistration-request`) and an admin approves it; drivers and admins are managed by admins."""
+    if user.role == "student":
+        raise ForbiddenRole("Students cannot delete their account; request deregistration instead")
+    raise ForbiddenRole()

@@ -30,8 +30,12 @@ API = "/api/v1"
 PHONE = "+919876543210"
 
 
+JPEG = bytes.fromhex("ffd8ffe0") + b"photo" * 20 + bytes.fromhex("ffd9")
+
+
 def body(route_id, **extra) -> dict:
-    return {"full_name": "Asha Khan", "phone": PHONE, "department": "Physics", "route_id": str(route_id),
+    return {"full_name": "Asha Khan", "phone": PHONE, "department": "Physics", "enrollment_no": "UOK-2024-001",
+            "home_address": "12 Lake Road, Srinagar", "route_id": str(route_id),
             "requested_bus_label": "Bus 2", "claims_registered": False, **extra}
 
 
@@ -71,6 +75,9 @@ def register(client, new_student):
         resp = await client.put(f"{API}/me/registration", json=body(route_id, full_name=f"Student {n}", **extra),
                                 headers=headers)
         assert resp.status_code == 200, resp.text
+        resp = await client.put(f"{API}/me/registration/photo", content=JPEG,
+                                headers={**headers, "Content-Type": "image/jpeg"})
+        assert resp.status_code == 200, resp.text
         return uid, headers
 
     return go
@@ -103,7 +110,7 @@ async def test_x5_registration_create_read_and_one_profile_per_student(client, c
 
 @pytest.mark.parametrize("patch", [
     {"phone": "98765"}, {"phone": "not a number"}, {"full_name": ""}, {"department": ""},
-    {"requested_bus_label": ""}, {"route_id": "nope"},
+    {"requested_bus_label": ""}, {"route_id": "nope"}, {"enrollment_no": ""}, {"home_address": ""},
 ])
 async def test_x5_registration_validation(client, make_route, new_student, patch):
     route = await make_route()
@@ -302,9 +309,10 @@ async def test_x6_two_concurrent_approvals_for_the_last_seat(google):
                 "insert into public.users (role, name, email) values ('student', $1, $2) returning id",
                 f"Racer {n}", f"racer{n}-{uuid4().hex[:6]}@uok.edu.in")
             await con.execute(
-                """insert into public.student_profiles (user_id, full_name, phone, department, route_id)
-                   values ($1, 'Racer', '+919876543210', 'Physics', $2)""",
-                uid, route)
+                """insert into public.student_profiles (user_id, full_name, phone, department, route_id,
+                                                         enrollment_no, home_address, photo, photo_mime)
+                   values ($1, 'Racer', '+919876543210', 'Physics', $2, 'ENR', 'Addr', $3, 'image/jpeg')""",
+                uid, route, JPEG)
             ids["users"].append(uid)
             students.append(uid)
         await con.execute("insert into public.admin_allowlist (email) values ($1)", admin_email)
@@ -658,10 +666,11 @@ async def test_x6_driver_roster_shows_name_and_department_only(
     assert resp.status_code == 200 and resp.json() == {"items": []}
 
 
-async def test_x5_deleting_the_account_deletes_the_registration(client, con, make_route, set_bus, register):
+async def test_x5_deleting_the_account_deletes_the_registration(
+        client, con, make_route, set_bus, register, delete_account):
     route = await make_route()
-    uid, headers = await register(1, route["id"])
+    uid, _ = await register(1, route["id"])
     assert await con.fetchval("select count(*) from public.student_profiles where user_id = $1", uid) == 1
-    assert (await client.delete(f"{API}/me", headers=headers)).status_code == 204
+    await delete_account(uid)
     assert await con.fetchval("select count(*) from public.student_profiles where user_id = $1", uid) == 0
     assert isinstance(con, asyncpg.Connection)

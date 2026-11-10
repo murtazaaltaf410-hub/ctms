@@ -20,7 +20,13 @@ from app.errors import RegistrationRequired
 _Student = Annotated[CurrentUser, Depends(require_role("student"))]
 
 PROFILE_SQL = """
-select sp.user_id, sp.full_name, sp.phone, sp.department, sp.route_id, r.name as route_name,
+select sp.user_id, sp.full_name, sp.phone, sp.department, sp.enrollment_no, sp.home_address,
+       sp.photo is not null as has_photo,
+       (nullif(trim(sp.full_name), '') is not null and nullif(trim(sp.phone), '') is not null
+        and nullif(trim(sp.department), '') is not null and nullif(trim(sp.enrollment_no), '') is not null
+        and nullif(trim(sp.home_address), '') is not null and sp.route_id is not null
+        and sp.photo is not null) as complete,
+       sp.route_id, r.name as route_name,
        sp.requested_bus_label, sp.claims_registered, sp.status, sp.bus_id, b.label as bus_label,
        sp.admin_note, sp.reviewed_at, sp.created_at, sp.updated_at
   from public.student_profiles sp

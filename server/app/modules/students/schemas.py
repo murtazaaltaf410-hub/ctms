@@ -18,6 +18,8 @@ class RegistrationIn(ApiModel):
     full_name: str = Field(min_length=1, max_length=120)
     phone: str = Field(min_length=1, max_length=32, description="E.164, e.g. +919876543210")
     department: str = Field(min_length=1, max_length=120)
+    enrollment_no: str = Field(min_length=1, max_length=40)
+    home_address: str = Field(min_length=1, max_length=500)
     route_id: UUID
     requested_bus_label: str | None = Field(default=None, min_length=1, max_length=60)
     claims_registered: bool = Field(default=False, description="The student says they are registered with the facility")
@@ -33,6 +35,10 @@ class RegistrationOut(ApiModel):
     full_name: str
     phone: str | None
     department: str | None
+    enrollment_no: str | None
+    home_address: str | None
+    has_photo: bool = Field(description="PUT /me/registration/photo uploads it; GET /students/{id}/photo serves it")
+    complete: bool = Field(description="Name, phone, department, enrollment, address, route and photo are all set")
     route_id: UUID | None
     route_name: str | None
     requested_bus_label: str | None
@@ -52,8 +58,11 @@ class NearestRouteOut(ApiModel):
 
 
 class RosterStudent(ApiModel):
+    student_id: UUID
     name: str
     department: str | None
+    enrollment_no: str | None
+    has_photo: bool
 
 
 class RosterOut(ApiModel):
@@ -67,6 +76,8 @@ class AdminStudent(ApiModel):
     email: str | None
     phone: str | None
     department: str | None
+    enrollment_no: str | None
+    has_photo: bool
     route_id: UUID | None
     route_name: str | None
     requested_bus_label: str | None
@@ -83,6 +94,22 @@ class AdminStudent(ApiModel):
     created_at: UtcDateTime
 
 
+class DeregistrationOut(ApiModel):
+    id: UUID
+    status: Literal["pending", "approved", "rejected"]
+    reason: str | None
+    admin_note: str | None
+    created_at: UtcDateTime
+    reviewed_at: UtcDateTime | None
+
+
+class AdminStudentDetail(AdminStudent):
+    """Everything an admin sees on the student's page (the list rows leave address and phone out)."""
+
+    home_address: str | None
+    deregistration: DeregistrationOut | None = Field(description="The student's latest deregistration request")
+
+
 class AdminStudentPage(ApiModel):
     items: list[AdminStudent]
     next_cursor: str | None
@@ -90,6 +117,10 @@ class AdminStudentPage(ApiModel):
 
 class ApproveIn(ApiModel):
     bus_id: UUID
+
+
+class ApproveOptIn(ApiModel):
+    bus_id: UUID | None = Field(default=None, description="Omit to auto-assign (requested bus, else most free seats)")
 
 
 class RejectIn(ApiModel):

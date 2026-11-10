@@ -112,10 +112,11 @@ async def test_roles_and_ownership_are_enforced(
     assert (await client.get(f"/api/v1/trips/{trip['id']}/pickups", headers=other_driver["headers"])).status_code == 403
 
 
-async def test_deleting_the_student_deletes_their_pin(client, con, live_app, make_route, google_login):
+async def test_deleting_the_student_deletes_their_pin(client, con, live_app, make_route, google_login, delete_account):
     route = await make_route()
     student = bearer((await google_login())["access_token"])
     await client.post("/api/v1/pickups", json=pin(route["id"]), headers=student)
     assert await con.fetchval("select count(*) from public.pickup_requests") == 1
-    assert (await client.delete("/api/v1/me", headers=student)).status_code == 204
+    uid = (await client.get("/api/v1/me", headers=student)).json()["id"]
+    await delete_account(uid)
     assert await con.fetchval("select count(*) from public.pickup_requests") == 0

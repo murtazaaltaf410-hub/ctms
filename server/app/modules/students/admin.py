@@ -24,11 +24,15 @@ from app.db import Conn
 from app.errors import NoSeat, NotFound, ValidationFailed
 from app.live.hub import get_hub
 from app.modules.admin.common import AdminUser, Cursor, Limit, decode_cursor, page_limit, paginate
+from app.modules.students.autoassign import choose_bus, serving_candidates
 from app.modules.students.schemas import (
     AdminStudent,
+    AdminStudentDetail,
     AdminStudentPage,
     ApproveIn,
+    ApproveOptIn,
     BusSeats,
+    DeregistrationOut,
     RejectIn,
     RouteTotals,
     StatusCounts,
@@ -40,6 +44,7 @@ router = APIRouter(prefix="/admin/students", tags=["admin: students"])
 
 _SELECT = """
 select u.id, coalesce(sp.full_name, u.name, 'Student') as full_name, u.email, sp.phone, sp.department,
+       sp.enrollment_no, sp.photo is not null as has_photo, sp.home_address,
        sp.route_id, r.name as route_name,
        sp.requested_bus_label, coalesce(sp.claims_registered, false) as claims_registered,
        sp.status, sp.bus_id, b.label as bus_label,
@@ -49,6 +54,9 @@ select u.id, coalesce(sp.full_name, u.name, 'Student') as full_name, u.email, sp
          when nullif(trim(sp.full_name), '') is null
            or nullif(trim(sp.phone), '') is null
            or nullif(trim(sp.department), '') is null
+           or nullif(trim(sp.enrollment_no), '') is null
+           or nullif(trim(sp.home_address), '') is null
+           or sp.photo is null
            or sp.route_id is null then 'incomplete'
          else 'registered'
        end as registration_state,
@@ -57,7 +65,11 @@ select u.id, coalesce(sp.full_name, u.name, 'Student') as full_name, u.email, sp
          when nullif(trim(sp.full_name), '') is null
            or nullif(trim(sp.phone), '') is null
            or nullif(trim(sp.department), '') is null
-           or sp.route_id is null then 'Registration is incomplete: name, phone, department, or route is missing.'
+           or nullif(trim(sp.enrollment_no), '') is null
+           or nullif(trim(sp.home_address), '') is null
+           or sp.photo is null
+           or sp.route_id is null then 'Registration is incomplete: name, phone, department, '
+                         || 'enrollment number, home address, photo or route is missing.'
          else null
        end as approval_diagnostic
   from public.users u
@@ -67,11 +79,16 @@ select u.id, coalesce(sp.full_name, u.name, 'Student') as full_name, u.email, sp
 """
 
 
-async def load_student(con: asyncpg.Connection, student_id: UUID) -> AdminStudent:
+async def _student_row(con: asyncpg.Connection, student_id: UUID) -> asyncpg.Record:
     row = await con.fetchrow(_SELECT + " where u.id = $1 and u.role = 'student'", student_id)
     if row is None:
         raise NotFound("Student registration not found")
-    return AdminStudent(**dict(row))
+    return row
+
+
+async def load_student(con: asyncpg.Connection, student_id: UUID) -> AdminStudent:
+    # AdminStudent leaves out the home address (it is on the detail page only).
+    return AdminStudent(**dict(await _student_row(con, student_id)))
 
 
 def _like(q: str) -> str:
@@ -84,7 +101,8 @@ async def list_students(
     request: Request, user: AdminUser, con: Conn, cursor: Cursor = None, limit: Limit = None,
     status: Annotated[StudentStatus | None, Query()] = None,
     route_id: UUID | None = None, bus_id: UUID | None = None,
-    q: Annotated[str | None, Query(max_length=100, description="Search name, e-mail, phone, department")] = None,
+    q: Annotated[str | None, Query(
+        max_length=100, description="Search name, e-mail, phone, department, enrollment number")] = None,
 ) -> AdminStudentPage:
     n = page_limit(request, limit)
     after: tuple[datetime, UUID] | None = decode_cursor(cursor)
@@ -96,7 +114,7 @@ async def list_students(
           and ($2::uuid is null or sp.route_id = $2)
           and ($3::uuid is null or sp.bus_id = $3)
            and ($4::text is null or coalesce(sp.full_name, u.name, '') ilike $4 or u.email ilike $4 or sp.phone ilike $4
-               or sp.department ilike $4)
+               or sp.department ilike $4 or sp.enrollment_no ilike $4)
            and ($5::timestamptz is null or (coalesce(sp.created_at, u.created_at), u.id) > ($5, $6))
         order by coalesce(sp.created_at, u.created_at), u.id limit $7""",
         status, route_id, bus_id, pattern,
@@ -145,23 +163,37 @@ async def summary(user: AdminUser, con: Conn) -> StudentSummary:
     )
 
 
-@router.get("/{student_id}", response_model=AdminStudent)
-async def get_student(student_id: UUID, user: AdminUser, con: Conn) -> AdminStudent:
-    return await load_student(con, student_id)
+@router.get("/{student_id}", response_model=AdminStudentDetail)
+async def get_student(student_id: UUID, user: AdminUser, con: Conn) -> AdminStudentDetail:
+    """Everything about one student, including the home address (never in lists or audit meta)."""
+    row = await _student_row(con, student_id)
+    dereg = await con.fetchrow(
+        """select id, status, reason, admin_note, created_at, reviewed_at from public.deregistration_requests
+            where user_id = $1 order by created_at desc, id limit 1""", student_id)
+    return AdminStudentDetail(**dict(row), deregistration=None if dereg is None else DeregistrationOut(**dict(dereg)))
 
 
-async def _assign(request: Request, con: asyncpg.Connection, admin_id: UUID, student_id: UUID, bus_id: UUID,
+async def _assign(request: Request, con: asyncpg.Connection, admin_id: UUID, student_id: UUID, bus_id: UUID | None,
                   *, reassign: bool) -> AdminStudent:
     async with con.transaction():
         prof = await con.fetchrow(
-            """select full_name, phone, department, route_id, status, bus_id
+            """select full_name, phone, department, enrollment_no, home_address, photo is not null as has_photo,
+                      route_id, requested_bus_label, status, bus_id
                  from public.student_profiles where user_id = $1 for update""",
             student_id)
         if prof is None:
             raise NotFound("Student registration not found")
         if any(not isinstance(prof[field], str) or not prof[field].strip()
-               for field in ("full_name", "phone", "department")) or prof["route_id"] is None:
-            raise ValidationFailed("Student registration is incomplete; ask the student to complete it before approval")
+               for field in ("full_name", "phone", "department", "enrollment_no", "home_address")
+               ) or prof["route_id"] is None or not prof["has_photo"]:
+            raise ValidationFailed("Student registration is incomplete; ask the student to complete it "
+                                   "(name, phone, department, enrollment number, home address, photo, route)")
+        if bus_id is None:
+            chosen = choose_bus(await serving_candidates(con, prof["route_id"], student_id),
+                                prof["requested_bus_label"])
+            if chosen is None:
+                raise NoSeat("No bus on the student's route has a free seat")
+            bus_id = chosen.bus_id
         if reassign and prof["status"] != "approved":
             raise ValidationFailed("status: only an approved student can be reassigned; approve first")
         bus = await con.fetchrow(
@@ -200,9 +232,10 @@ async def _assign(request: Request, con: asyncpg.Connection, admin_id: UUID, stu
 
 
 @router.post("/{student_id}/approve", response_model=AdminStudent)
-async def approve(student_id: UUID, body: ApproveIn, request: Request, user: AdminUser,
-                  con: Conn) -> AdminStudent:
-    return await _assign(request, con, user.id, student_id, body.bus_id, reassign=False)
+async def approve(student_id: UUID, request: Request, user: AdminUser, con: Conn,
+                  body: ApproveOptIn | None = None) -> AdminStudent:
+    """`bus_id` is optional: without it the bus is chosen by `choose_bus` (requested bus, else most free seats)."""
+    return await _assign(request, con, user.id, student_id, body.bus_id if body else None, reassign=False)
 
 
 @router.post("/{student_id}/reassign", response_model=AdminStudent)

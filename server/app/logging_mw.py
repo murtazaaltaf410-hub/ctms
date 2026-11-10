@@ -45,7 +45,7 @@ REDACTED = "[redacted]"
 # Keys whose values must never reach the logs, in `key=value`, `key: value`,
 # `"key": value` or `'key': 'value'` form (case-insensitive).
 _SENSITIVE_KEYS = (
-    r"lat|lng|lon|latitude|longitude|"
+    r"lat|lng|lon|latitude|longitude|home_address|photo|"
     r"access_token|refresh_token|id_token|token|push_token|fcm_token|"
     r"otp|otp_code|password|current_password|new_password|temporary_password|password_hash|secret|jwt_secret|authorization|api_key|x-goog-api-key"
 )

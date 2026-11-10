@@ -208,7 +208,9 @@ async def test_full_alert_queue_drops_the_oldest_fix(app, world):
     assert small.queue.get_nowait().lat > small.queue.get_nowait().lat  # 500 then 400 remain
 
 
-async def test_u2_deleting_account_stops_alerts(app, con, client, engine, push, world, google_login, fake_clock):
+async def test_u2_deleting_account_stops_alerts(
+    app, con, client, engine, push, world, google_login, fake_clock, delete_account
+):
     trip = await world()
     body = await google_login(sub="p4-u2", email="p4-u2@uok.edu.in")
     sid, auth = body["user"]["id"], bearer(body["access_token"])
@@ -225,7 +227,7 @@ async def test_u2_deleting_account_stops_alerts(app, con, client, engine, push, 
     await approach(app, engine, fake_clock, trip, [600, 500])
     assert engine.state.keys_for(student_id=UUID(sid))
 
-    assert (await client.delete("/api/v1/me", headers=auth)).status_code == 204
+    await delete_account(sid)
     assert not engine.state.prev_distance  # USER_DELETED dropped the in-memory state
     assert await approach(app, engine, fake_clock, trip, [400, 300]) == [[], []]
     await app.state.push.drain(app)

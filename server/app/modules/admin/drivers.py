@@ -28,6 +28,7 @@ from app.errors import NotFound, ValidationFailed
 from app.modules.admin.common import AdminUser, Cursor, Limit, decode_cursor, page_limit, paginate
 from app.modules.auth.schemas import normalise_phone
 from app.modules.auth.service import revoke_user_sessions
+from app.modules.students.photos import read_image
 from app.schemas import ApiModel, UtcDateTime, utcnow
 from app.security import generate_temporary_password, hash_password
 
@@ -124,6 +125,7 @@ class DriverOut(DriverProfileFields):
     locked: bool = Field(description="True while the account is locked after too many wrong passwords")
     bus_id: UUID | None
     bus_label: str | None
+    has_photo: bool = False
     created_at: UtcDateTime
 
 
@@ -159,7 +161,7 @@ _SELECT = """select u.id, u.name, u.phone, u.userid, u.email, u.active, u.must_c
                     (u.locked_until is not null and u.locked_until > now()) as locked, u.created_at,
                     b.id as bus_id, b.label as bus_label,
                     p.employee_id, p.licence_no, p.licence_expiry, p.address, p.emergency_name,
-                    p.emergency_phone, p.notes
+                    p.emergency_phone, p.notes, coalesce(p.photo is not null, false) as has_photo
              from public.users u
              left join public.buses b on b.driver_id = u.id
              left join public.driver_profiles p on p.user_id = u.id
@@ -238,6 +240,32 @@ async def list_drivers(request: Request, user: AdminUser, con: Conn, cursor: Cur
     )
     page, next_cursor = paginate(rows, n, "created_at")
     return DriverPage(items=[DriverOut(**dict(r)) for r in page], next_cursor=next_cursor)
+
+
+@router.get("/{driver_id}", response_model=DriverOut)
+async def get_driver(driver_id: UUID, user: AdminUser, con: Conn) -> DriverOut:
+    return await load_driver(con, driver_id)
+
+
+@router.put("/{driver_id}/photo", response_model=DriverOut,
+            openapi_extra={"requestBody": {"required": True, "content": {
+                "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+                "image/png": {"schema": {"type": "string", "format": "binary"}}}}})
+async def put_driver_photo(driver_id: UUID, request: Request, user: AdminUser, con: Conn) -> DriverOut:
+    """Raw JPEG or PNG body (<= student_photo_max_bytes). Students on the driver's bus see it."""
+    data, mime = await read_image(request)
+    async with con.transaction():
+        found = await con.fetchval("select 1 from public.users where id = $1 and role = 'driver' for update", driver_id)
+        if found is None:
+            raise NotFound("Driver not found")
+        await con.execute(
+            """insert into public.driver_profiles (user_id, photo, photo_mime, photo_updated_at)
+               values ($1, $2, $3, now())
+               on conflict (user_id) do update set photo = excluded.photo, photo_mime = excluded.photo_mime,
+                                                   photo_updated_at = excluded.photo_updated_at""",
+            driver_id, data, mime)
+        await write_audit(con, actor_id=user.id, action="driver.photo", target_type="user", target_id=driver_id)
+    return await load_driver(con, driver_id)
 
 
 @router.post("", response_model=DriverCreated, status_code=status.HTTP_201_CREATED)
