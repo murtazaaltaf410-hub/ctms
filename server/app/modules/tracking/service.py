@@ -32,6 +32,7 @@ from app.live.messages import bus_position
 from app.live.state import BusLive
 from app.live.writer import LocationRow, RejectedRow, get_writer
 from app.modules.trips import service as trips
+from app.modules.trips import stops
 
 log = logging.getLogger("ctms.tracking")
 
@@ -103,6 +104,7 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
     fixes = sorted((Fix(f.fix_id, f.lat, f.lng, f.accuracy, f.speed, f.heading, _utc(f.recorded_at))
                     for f in fixes), key=lambda f: f.recorded_at)
     moved = False
+    resumed = False   # a fix above moved_speed_mps: the bus is not stationary (V1.3 stop alert)
     arrival_at: datetime | None = None
     async with bus.lock:
         now = clock.now()
@@ -151,6 +153,9 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
             bus.recorded_at, bus.received_at = fix.recorded_at, now
             bus.resnap(tie)
             moved = True
+            if sample is not None and sample > moved_speed:
+                bus.last_moving_at = now
+                resumed = True
             if bus.moved_at is None and max(sample or 0.0, bus.ema_speed_mps or 0.0) > moved_speed:
                 bus.moved_at = fix.recorded_at
                 writer.queue_trip_moved(bus.trip_id, fix.recorded_at)
@@ -172,6 +177,11 @@ async def ingest(app: Any, bus: BusLive, fixes: list[Fix], con: asyncpg.Connecti
         ))
     if arrival_at is not None and con is not None:
         await _close_on_arrival(app, bus, con, arrival_at)
+    elif resumed and bus.stop_open and con is not None:
+        try:
+            await stops.reconcile(app, con, bus, now)   # close the stop episode and clear the auto status now
+        except Exception:
+            log.exception("stop episode close failed for trip %s", bus.trip_id)
     return result
 
 

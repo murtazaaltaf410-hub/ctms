@@ -213,12 +213,15 @@ async def list_routes(request: Request, user: AuthUser, con: Conn, cursor: Curso
 
 @public_router.get("/{route_id}", response_model=RouteDetailOut)
 async def get_route(route_id: UUID, user: AuthUser, con: Conn) -> RouteDetailOut:
-    """Route with encoded polyline and ordered stops."""
+    """Route with encoded polyline and ordered stops. A student sees only the first and last stop (V1.3
+    decision 7); the full polyline is always returned. Drivers and admins get every stop."""
     row = await con.fetchrow(
         "select id, name, status, polyline, length_m from public.routes where id = $1 and active", route_id)
     if row is None:
         raise NotFound("Route not found")
     stops = [StopOut(**dict(s)) for s in await active_stops(con, route_id)]
+    if user.role == "student" and len(stops) > 2:
+        stops = [stops[0], stops[-1]]
     return RouteDetailOut(**dict(row), stops=stops)
 
 

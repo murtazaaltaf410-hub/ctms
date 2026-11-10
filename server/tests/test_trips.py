@@ -167,7 +167,8 @@ async def test_status_update_broadcasts_and_validates(client, con, live_app, dri
         f"/api/v1/trips/{trip['id']}/status", json={"status": "delayed", "note": "Traffic"}, headers=driver["headers"]
     )
     assert resp.status_code == 204
-    assert ws.sent == [{"type": "bus_status", "bus_id": trip["bus_id"], "status": "delayed", "note": "Traffic"}]
+    assert ws.sent == [{"type": "bus_status", "bus_id": trip["bus_id"], "trip_id": trip["id"], "status": "delayed",
+                       "note": "Traffic"}]
     assert hook_log["trip"][-1].kind == "status"
     row = await con.fetchrow("select status, note from public.trips where id = $1", trip["id"])
     assert (row["status"], row["note"]) == ("delayed", "Traffic")

@@ -11,7 +11,7 @@ from app import clock
 from app.db import Conn
 from app.deps import CurrentUser, require_role
 from app.errors import NotFound, NotYourTrip
-from app.modules.trips import service
+from app.modules.trips import service, stops
 from app.modules.trips.schemas import StartTripIn, StatusIn, TripOut, TripSummary
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -42,6 +42,7 @@ async def set_trip_status(trip_id: UUID, body: StatusIn, request: Request, user:
     """Set on_time / delayed / breakdown and an optional note (≤140 chars); broadcast `bus_status`."""
     row = await service.owned_active_trip(con, user.id, trip_id)
     await service.set_status(request.app, con, row, body.status, body.note)
+    await stops.mark_driver_set(con, trip_id)   # an open stop episode's status is now the driver's, not auto
     return Response(status_code=204)
 
 

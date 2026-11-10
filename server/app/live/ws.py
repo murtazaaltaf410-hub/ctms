@@ -5,8 +5,9 @@ Protocol:
      within `ws_auth_timeout_s` (5 s); the token is never in the URL.
   2. Client sends `{"type": "ping"}` every `ws_heartbeat_s` (25 s); server replies
      `{"type": "pong"}`. A client silent for `ws_idle_timeout_s` is dropped.
-  3. Server pushes `bus_position`, `bus_status`, `trip_started`, `trip_ended`
-     (and `announcement` from Phase 4) via the hub. Admins and drivers get every bus; a student
+  3. On connect the server sends one `bus_status` per visible live bus (a snapshot, so an update made while
+     the client was away is never lost). Then it pushes `bus_position`, `bus_status`, `trip_started`,
+     `trip_ended` (and `announcement` from Phase 4) via the hub. Admins and drivers get every bus; a student
      only gets the buses of the route on their approved registration (ADR-10), re-scoped live
      when an admin approves, reassigns or rejects them. Announcements go to everyone.
 
@@ -29,6 +30,7 @@ from app.errors import AppError, DbUnavailable, SessionReplaced, TokenInvalid
 from app.live import SESSIONS_REVOKED, USER_DELETED, subscribe
 from app.live.conn import live_conn
 from app.live.hub import get_hub
+from app.live.messages import bus_status
 from app.live.state import get_live
 from app.security import decode_access_token
 
@@ -116,6 +118,11 @@ async def live_ws(ws: WebSocket) -> None:
     hub.add(ws, user_id, session_id, student=is_student, route_id=route_id)
     idle = float(store.get_cached("ws_idle_timeout_s"))
     try:
+        # A (re)connecting client gets the current status/note of every bus it may see, so an update made while
+        # it was away is never lost (positions follow with the next fix).
+        for bus in list(get_live(app).buses.values()):
+            if not is_student or bus.route_id == route_id:
+                await ws.send_json(bus_status(bus))
         while True:
             msg = _parse(await asyncio.wait_for(ws.receive_text(), timeout=idle))
             if msg.get("type") == "ping":

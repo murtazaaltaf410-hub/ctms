@@ -72,6 +72,9 @@ select p.id, p.student_id, p.lat, p.lng, p.label,
 from public.pickup_requests p
 where p.status = 'waiting' and p.route_id = $5 and p.direction = $6 and p.expires_at > $8
   and p.lat between $1 and $2 and p.lng between $3 and $4
+  and (p.decision <> 'needs_decision' or exists(   -- a pin still waiting for a decision alerts only its own bus
+         select 1 from public.student_profiles sp2 join public.trips tt on tt.id = $7
+          where sp2.user_id = p.student_id and (sp2.bus_id is null or sp2.bus_id = tt.bus_id)))
 """
 
 

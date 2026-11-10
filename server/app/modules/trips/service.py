@@ -25,6 +25,7 @@ from app.live.messages import bus_status, trip_ended, trip_started
 from app.live.state import BusLive, RouteGeom, get_live
 from app.live.writer import get_writer
 from app.modules.alerts.engine import JOURNEY_TAG
+from app.modules.pickups.decisions import flag_unknown_pickups
 from app.modules.trips.schedule import Slot, nearest_slot, slot_occurrence
 from app.modules.trips.schemas import TripOut, TripSummary
 from app.push import PushJob, get_push
@@ -193,6 +194,10 @@ async def start_trip(app: FastAPI, con: asyncpg.Connection, driver_id: UUID, rou
     await broadcast(app, trip_started(bus_live.bus_id, trip_id), route_id)
     await emit_trip(app, TripEvent(trip_id, bus_live.bus_id, route_id, "started"))
     await notify_journey_started(app, con, row)
+    try:
+        await flag_unknown_pickups(app, con, row)   # waiting pins from other buses' students need a decision
+    except Exception:
+        log.exception("pickup decision check for trip %s failed", trip_id)
     return trip_out(app, row)
 
 
@@ -304,6 +309,9 @@ async def end_trip(app: FastAPI, con: asyncpg.Connection, trip_id: UUID, *, clos
             trip_id, ended_at, closed_by, distance, last_fix, arrived_at,
         )
         if closed:
+            await con.execute("update public.stop_events set ended_at = greatest(started_at, $2) "
+                              "where trip_id = $1 and ended_at is null",
+                              trip_id, ended_at)
             await write_audit(con, actor_id=actor_id, action="trip.end", target_type="trip", target_id=trip_id,
                               meta={"closed_by": closed_by, "distance_m": round(distance, 1),
                                     "arrived": arrived_at is not None})
@@ -335,6 +343,9 @@ async def rebuild_live(app: FastAPI) -> int:
                 bus.last_stored_at = fix["recorded_at"]
                 bus.ema_speed_mps = None if fix["speed_mps"] is None else float(fix["speed_mps"])
                 bus.resnap(tie)
+                bus.last_moving_at = await con.fetchval(
+                    "select max(received_at) from public.locations where trip_id = $1 and speed_mps > $2",
+                    row["id"], float(app.state.settings_store.get_cached("moved_speed_mps")))
             live.add(bus)
     return len(rows)
 

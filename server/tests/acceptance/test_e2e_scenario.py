@@ -108,7 +108,8 @@ async def test_e2e_route_to_report(
     types = [m["type"] for m in ws.sent]
     assert types[0] == "trip_started" and types[-1] == "trip_ended"
     assert types.count("bus_position") == len(uploads)
-    assert {"type": "bus_status", "bus_id": bus_id, "status": "delayed", "note": "Traffic at the gate"} in ws.sent
+    assert {"type": "bus_status", "bus_id": bus_id, "trip_id": trip["id"], "status": "delayed",
+            "note": "Traffic at the gate"} in ws.sent
     assert types.index("bus_status") > types.index("bus_position")
     ws.hang_up()
     await asyncio.wait_for(task, timeout=2)

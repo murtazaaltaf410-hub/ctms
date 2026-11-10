@@ -75,7 +75,8 @@ async def test_ping_pong_and_broadcasts(
     assert types == ["pong", "trip_started", "bus_position", "bus_status", "trip_ended"]
     position = ws.sent[2]
     assert set(position) == {"type", "bus_id", "trip_id", "lat", "lng", "heading", "speed", "recorded_at"}
-    assert ws.sent[3] == {"type": "bus_status", "bus_id": trip["bus_id"], "status": "breakdown", "note": "Flat tyre"}
+    assert ws.sent[3] == {"type": "bus_status", "bus_id": trip["bus_id"], "trip_id": trip["id"],
+                          "status": "breakdown", "note": "Flat tyre"}
     ws.hang_up()
     await asyncio.wait_for(task, timeout=2)
     assert hub_clients(live_app) == 0

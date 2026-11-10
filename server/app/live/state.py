@@ -90,6 +90,10 @@ class BusLive:
     stop_along: dict[UUID, float] = field(default_factory=dict)
     moved_at: datetime | None = None           # first fix above moved_speed_mps (journey really began)
     arriving: bool = False                     # an arrival close is in flight; fires once
+    # V1.3 stop alert: server time of the last accepted fix whose speed was above moved_speed_mps
+    # (None = never moved this trip), and whether a stop_events episode is open (kept by the stop job).
+    last_moving_at: datetime | None = None
+    stop_open: bool = False
     # from_campus only: the travel-order last stop (lowest sequence), cached at load time.
     last_stop: tuple[float, float] | None = None
     last_stored_at: datetime | None = None     # history downsampling

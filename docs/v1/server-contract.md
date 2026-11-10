@@ -141,3 +141,28 @@ Authoritative shapes for the Flutter agents. Everything is under `/api/v1`, snak
 - **Button.** `POST /trips/{id}/end` is unchanged (`closed_by='driver'`, safe retry) and also sets `arrived_at` when the live position is inside the same geofence. The silence auto-close (`closed_by='auto'`) is unchanged and never sets `arrived_at`.
 - **Reports.** `GET /admin/trips` items add `direction, moved_at, arrived_at`; `trips.csv` columns are now `trip_id, started_at, ended_at, bus_label, driver_name, route_name, type, direction, status, moved_at, arrived_at, closed_by, distance_m, duration_s, avg_speed_mps, avg_speed_kmh`.
 - **Settings.** `GET/PUT /admin/settings` (partial PUT) with `alert_radius_m, campus_lat, campus_lng, campus_radius_m, last_stop_radius_m`; see ADR-10 implementation notes for ranges. `GET /config` also returns `campus_lat, campus_lng, campus_radius_m`.
+
+## V1.3 server ops contracts (stop alerts, pickup decisions, student view)
+
+Migration `0012_stop_alerts_pickup_decisions.sql`: tables `stop_events`, `driver_prefs`; `pickup_requests.decision`/`decided_at`; setting `stopped_alert_after_s` (300). Config keys: `stopped_alert_after_s` (settings table too), `stop_alert_check_s` (30, config only).
+
+**Live status bug (fixed).** Students only learned a status change from the single `bus_status` WS message; a socket that connected or reconnected later never got it, and the message lacked `trip_id`, so the app could not match it to a bus whose entry was not loaded yet. Now `bus_status` carries `trip_id` and the server sends one `bus_status` per visible live bus right after a socket authenticates. `GET /buses/live` always reflected the status.
+- WS `bus_status`: `{type, bus_id, trip_id, status, note}`; first frames after auth are a snapshot of these.
+
+**Stop alerts (driver role, else 403 FORBIDDEN_ROLE; another driver's trip 403 NOT_YOUR_TRIP; unknown/ended 404 NOT_FOUND)**
+- `GET /trips/{id}/stop-event` -> `StopEvent | null` (open episode). Poll or react to push `data.type == "stop_alert"` (`trip_id`, `stop_event_id`).
+- `POST /trips/{id}/stop-reason` `{reason: waiting_for_student|traffic|breakdown|fuel|police_check|other, note?<=140}` -> `StopEvent`. Sets trip status (`breakdown` for reason breakdown, else `delayed`) and note (your note, else standard text). 400 VALIDATION_ERROR on bad reason/long note.
+- `StopEvent`: `{id, trip_id, started_at, ended_at, reason|null, note|null, auto_marked, driver_notified_at|null}`.
+- `GET /me/driver-prefs` -> `{stop_alerts_enabled, snooze_until|null}`; `PUT /me/driver-prefs` `{stop_alerts_enabled?, snooze_minutes? in 0|15|30|60}` (at least one field) -> same shape. Opting out/snoozing only silences the driver push; students still see the auto status.
+- Behaviour: no movement (speed above `moved_speed_mps`) for `stopped_alert_after_s` with a fresh fix -> episode opens, status `delayed`/"Stopped" if it was `on_time`, push once. Moving again closes the episode and clears an auto "Stopped" back to `on_time` (a driver-set status or reason stays).
+
+**Pickup decisions**
+- `PickupOut` (POST /pickups, GET /me/pickup) gains `decision: auto|needs_decision|accepted|rejected`, `decided_at`. `GET /me/pickup` also returns a driver-rejected pin (status `cancelled`, decision `rejected`) for `pickup_request_ttl_s` after the decision.
+- `GET /trips/{id}/pickups` items gain `decision` (as this trip's bus sees it) and `student: {student_id, name, department, enrollment_no|null, has_photo}|null` (set for `needs_decision` and `accepted`).
+- `POST /pickups/{id}/decision` `{decision: accept|reject}` -> `{id, decision: accepted|rejected}`; driver with an active trip, pin waiting on that trip's route/leg from a student of another bus, else 404 NOT_FOUND. Pushes: driver `pickup_decision` ("Unknown student wants a pickup"; data `trip_id`, `request_id`), student `pickup_decision_result` (data `decision`).
+- Roster extra fields (`student_id`, `enrollment_no`, `has_photo`) belong to the students module.
+
+**Student view**
+- `GET /routes/{id}` for a student returns only the first and last stop; polyline is complete. Drivers/admins unchanged. `GET /stops/{id}/eta` still works for any stop id of the route.
+- `GET /me/eta` (approved student) -> `{target: {type: pickup|first_stop, lat, lng, label, stop_id, direction}|null, etas: BusEta[], next_scheduled}`: ETAs to the waiting pin (buses on its leg), else to the route's first stop.
+- Mid-route start: ETA/passed/progress use the first fix; nothing assumes stop 1.

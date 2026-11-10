@@ -30,14 +30,14 @@ async def test_tc11_reconnect_then_refetch_gives_correct_positions(client, live_
     assert len(ws.sent) == got_before  # nothing is queued for a dead socket
 
     ws2, task2 = await ws_connect(live_app, student["access_token"])
-    assert ws2.sent == []  # no replay on connect
+    assert [m["type"] for m in ws2.sent] == ["bus_status"]  # no position replay; only the status snapshot
     bus = await live_bus(client, headers, trip["bus_id"])
     newest = events[2 * third - 1].item.fixes[-1]
     assert (bus["lat"], bus["lng"]) == (round(newest.lat, 7), round(newest.lng, 7))
     assert bus["state"] == "live"
 
     await player.play(events[2 * third :])
-    assert [m["type"] for m in ws2.sent] == ["bus_position"] * (len(events) - 2 * third)
+    assert [m["type"] for m in ws2.sent] == ["bus_status"] + ["bus_position"] * (len(events) - 2 * third)
     assert (ws2.sent[-1]["lat"], ws2.sent[-1]["lng"]) == (round(fixes[-1].lat, 7), round(fixes[-1].lng, 7))
     ws2.hang_up()
     await asyncio.wait_for(task2, timeout=2)

@@ -21,7 +21,8 @@ def bus_position(bus: BusLive) -> dict:
 
 
 def bus_status(bus: BusLive) -> dict:
-    return {"type": "bus_status", "bus_id": str(bus.bus_id), "status": bus.status, "note": bus.note}
+    return {"type": "bus_status", "bus_id": str(bus.bus_id), "trip_id": str(bus.trip_id),
+            "status": bus.status, "note": bus.note}
 
 
 def trip_started(bus_id: UUID, trip_id: UUID) -> dict:

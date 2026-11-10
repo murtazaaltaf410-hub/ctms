@@ -95,7 +95,9 @@ async def test_driver_sees_waiting_students_on_their_leg_without_identities(
     items = resp.json()["items"]
     assert [i["label"] for i in items] == ["Bus stand"]  # the from_campus pin is another leg
     assert items[0]["distance_m"] is not None and 500 < items[0]["distance_m"] < 700
-    assert set(items[0]) == {"id", "lat", "lng", "label", "distance_m", "created_at"}  # no student identity
+    # No student identity for a student of this bus (the card is only for needs_decision/accepted pins).
+    assert set(items[0]) == {"id", "lat", "lng", "label", "distance_m", "created_at", "decision", "student"}
+    assert items[0]["decision"] == "auto" and items[0]["student"] is None
 
 
 async def test_roles_and_ownership_are_enforced(

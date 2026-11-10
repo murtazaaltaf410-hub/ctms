@@ -172,3 +172,14 @@ Decisions are numbered as in `v13-spec.md`.
 | V13-11 | Student sees bus + driver card; driver self profile | `::test_student_sees_their_bus_*`, `::test_driver_profile_is_the_drivers_own` | pass |
 | V13-12 | Admin student rows with enrollment (searchable) and full detail incl. deregistration state | `::test_admin_student_rows_and_detail_*` | pass |
 | V13-P | Privacy: no address/photo in audit meta or logs | `::test_no_address_or_photo_in_audit_meta_or_logs` | pass |
+
+## V1.3 server ops (stop alerts, pickup decisions, student view)
+
+| ID | Behaviour | Tests | Status |
+|---|---|---|---|
+| V13-13 | Driver status/note reaches students live: REST `/buses/live`, WS fan-out, reconnect snapshot, restart rebuild | `test_status_live.py` | pass |
+| V13-8 | Stop alert: one `stop_events` row per stationary episode, auto `delayed`/"Stopped" only from `on_time`, driver push honours prefs/snooze, auto status clears on movement, driver-set status kept, offline is not stopped, trip end closes episode | `test_stop_alerts.py` | pass |
+| V13-8b | `POST /trips/{id}/stop-reason`, `GET /trips/{id}/stop-event`, `GET/PUT /me/driver-prefs` validation and ownership | `test_stop_alerts.py` | pass |
+| V13-9 | Pickup from another bus's student is `needs_decision`; push, student card, accept/reject, student sees result, rejected pin removed, alerts wait for decision | `test_pickup_decisions.py` | pass |
+| V13-7 | Student route detail returns first+last stop with full polyline; `GET /me/eta` to pin or first stop; `/routes/nearest` unaffected | `test_student_view.py` | pass |
+| V13-10 | Trip starting mid-route: live position, ETA and passed logic follow the first fix | `test_student_view.py::test_trip_can_start_mid_route` | pass |

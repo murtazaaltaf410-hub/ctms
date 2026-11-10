@@ -16,6 +16,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import Field
 
 import app.jobs.retention
+import app.jobs.stop_alerts
 import app.jobs.trips
 import app.live.writer
 import app.live.ws  # noqa: F401  (registers jobs, shutdown flush and WS revocation handlers)
@@ -37,12 +38,14 @@ from app.modules.students.service import student_scope
 from app.modules.tracking.service import Fix, ingest
 from app.modules.trips import service as trips
 from app.modules.trips.router import router as trips_router
+from app.modules.trips.stops_router import router as stops_router
 from app.ratelimit import check_rate
 from app.schemas import ApiModel, UtcDateTime
 from app.security import decode_access_token
 
 router = APIRouter()
 router.include_router(trips_router)
+router.include_router(stops_router)
 router.include_router(eta_router)
 
 tracking = APIRouter(tags=["tracking"])
