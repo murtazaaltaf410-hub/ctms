@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # --- Phase 5: admin API, Routes API (ADR-8), reports -------------------------
     # Google Routes API computeRoutes; the key is GOOGLE_DIRECTIONS_KEY (runbook name).
-    routes_api_url: str = "https://googleapis.com"
+    routes_api_url: str = "https://routes.googleapis.com/directions/v2:computeRoutes"
     routes_api_timeout_s: float = 10
     routes_api_max_intermediates: int = 25  # Routes API limit -> at most 27 stops per route
     admin_list_limit_default: int = 50      # API spec: ?limit default 50, max 200
