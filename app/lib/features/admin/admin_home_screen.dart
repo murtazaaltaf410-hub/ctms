@@ -18,6 +18,8 @@ import 'driver_form_screen.dart';
 import 'fleet_pulse.dart';
 import 'route_map_editor.dart';
 import 'students_tab.dart';
+import 'deregistrations_screen.dart';
+import 'driver_detail_screen.dart';
 
 /// Operational admin console. The live list remains useful when Maps is unavailable.
 class AdminHomeScreen extends ConsumerStatefulWidget {
@@ -199,6 +201,12 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
         _fleetTab = 0;
       case PulseTarget.routes:
         _tab = _routesSection;
+      case PulseTarget.deregistrations:
+        // Not a section: a full-screen page above the console.
+        Navigator.of(context).push<void>(
+          MaterialPageRoute(builder: (_) => const DeregistrationsScreen()),
+        );
+        return;
     }
     _fleetRequest++;
   });
@@ -299,7 +307,11 @@ class _FleetTab extends ConsumerWidget {
                     '${driver.mustChangePassword ? '  (temporary password)' : ''}',
                   ),
                   isThreeLine: true,
-                  onTap: () => _editDriver(tabContext, ref, driver),
+                  onTap: () => Navigator.of(tabContext).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => DriverDetailScreen(driver: driver),
+                    ),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -586,6 +598,26 @@ class _MoreTab extends ConsumerWidget {
           title: const Text('Reports'),
           subtitle: const Text('Trip history and CSV export'),
           onTap: () => onOpenSection(5),
+        ),
+        ListTile(
+          key: const Key('more-deregistrations'),
+          leading: const Icon(Icons.person_remove_outlined),
+          title: const Text('Deregistration requests'),
+          subtitle: const Text('Students asking to delete their account'),
+          trailing: ref
+              .watch(adminDeregistrationsProvider)
+              .maybeWhen(
+                data: (items) => items.isEmpty
+                    ? null
+                    : Badge(
+                        key: const Key('more-deregistrations-count'),
+                        label: Text('${items.length}'),
+                      ),
+                orElse: () => null,
+              ),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(builder: (_) => const DeregistrationsScreen()),
+          ),
         ),
         const Divider(),
         ListTile(

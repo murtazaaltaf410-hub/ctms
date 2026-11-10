@@ -48,6 +48,7 @@ void refreshAdmin(WidgetRef ref) {
   ref.invalidate(adminSettingsProvider);
   ref.invalidate(adminStudentsProvider);
   ref.invalidate(adminStudentSummaryProvider);
+  ref.invalidate(adminDeregistrationsProvider);
 }
 
 // --- students (ADR-10) -------------------------------------------------------
@@ -139,4 +140,23 @@ void refreshStudents(WidgetRef ref) {
   ref.invalidate(adminStudentsProvider);
   ref.invalidate(adminStudentSummaryProvider);
   ref.invalidate(adminBusesProvider);
+  ref.invalidate(adminStudentDetailProvider);
+  ref.invalidate(adminDeregistrationsProvider);
 }
+
+/// One student with address and deregistration state.
+final adminStudentDetailProvider = FutureProvider.autoDispose
+    .family<AdminStudent, String>(
+      (ref, id) => ref.watch(adminRepositoryProvider).student(id),
+    );
+
+/// Pending deregistration requests (oldest first).
+final adminDeregistrationsProvider = FutureProvider<List<AdminDeregistration>>(
+  (ref) => ref.watch(adminRepositoryProvider).deregistrations(),
+);
+
+/// One driver (`GET /admin/drivers/{id}`).
+final adminDriverDetailProvider = FutureProvider.autoDispose
+    .family<AdminDriver, String>(
+      (ref, id) => ref.watch(adminRepositoryProvider).driver(id),
+    );

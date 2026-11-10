@@ -14,9 +14,9 @@ import 'admin_models.dart';
 import 'admin_providers.dart';
 
 /// Where an attention row or quick action leads.
-enum PulseTarget { students, buses, routes }
+enum PulseTarget { students, buses, routes, deregistrations }
 
-enum AttentionKind { approvals, bus, draftRoute }
+enum AttentionKind { approvals, deregistrations, bus, draftRoute }
 
 /// One "needs attention" row, built only from data the admin API already has.
 class AttentionItem {
@@ -41,6 +41,7 @@ List<AttentionItem> buildAttentionItems({
   required StudentSummary? summary,
   required Iterable<LiveBus> buses,
   required Iterable<AdminRoute> routes,
+  int pendingDeregistrations = 0,
 }) {
   final urgent = <AttentionItem>[];
   final soft = <AttentionItem>[];
@@ -70,6 +71,18 @@ List<AttentionItem> buildAttentionItems({
         tone: PillTone.live,
       ),
   ];
+  final deregistrations = <AttentionItem>[
+    if (pendingDeregistrations > 0)
+      AttentionItem(
+        kind: AttentionKind.deregistrations,
+        title: pendingDeregistrations == 1
+            ? '1 deregistration request'
+            : '$pendingDeregistrations deregistration requests',
+        detail: 'Approving deletes the student account',
+        target: PulseTarget.deregistrations,
+        tone: PillTone.delayed,
+      ),
+  ];
   final drafts = routes.where((r) => r.status == 'draft').toList();
   final draftItems = <AttentionItem>[
     if (drafts.isNotEmpty)
@@ -85,7 +98,7 @@ List<AttentionItem> buildAttentionItems({
         tone: PillTone.delayed,
       ),
   ];
-  return [...urgent, ...soft, ...approvals, ...draftItems];
+  return [...urgent, ...soft, ...approvals, ...deregistrations, ...draftItems];
 }
 
 AttentionItem _busItem(LiveBus bus, String what, String seen, PillTone tone) =>
@@ -114,6 +127,7 @@ Color _toneColor(CtmsColors c, PillTone tone) => switch (tone) {
 
 IconData _kindIcon(AttentionKind kind) => switch (kind) {
   AttentionKind.approvals => Icons.how_to_reg_outlined,
+  AttentionKind.deregistrations => Icons.person_remove_outlined,
   AttentionKind.bus => Icons.warning_amber_rounded,
   AttentionKind.draftRoute => Icons.route_outlined,
 };
@@ -376,10 +390,13 @@ class FleetPulse extends ConsumerWidget {
     final allRoutes =
         ref.watch(adminRoutesProvider).asData?.value ?? const <AdminRoute>[];
     final summary = ref.watch(adminStudentSummaryProvider).asData?.value;
+    final pendingDeregistrations =
+        ref.watch(adminDeregistrationsProvider).asData?.value.length ?? 0;
     final attention = buildAttentionItems(
       summary: summary,
       buses: buses,
       routes: allRoutes,
+      pendingDeregistrations: pendingDeregistrations,
     );
     final data = TransitMapData(
       buses: [

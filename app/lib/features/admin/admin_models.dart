@@ -1,5 +1,6 @@
 import '../../core/models/json.dart';
 import '../../core/models/registration.dart';
+import '../../core/models/student_identity.dart';
 import '../../core/models/trip.dart';
 
 export '../../core/util/phone.dart' show normalisePhone;
@@ -52,6 +53,7 @@ class AdminDriver {
     this.emergencyName,
     this.emergencyPhone,
     this.notes,
+    this.hasPhoto = false,
   });
   factory AdminDriver.fromJson(Json j) => AdminDriver(
     id: j['id'] as String,
@@ -73,6 +75,7 @@ class AdminDriver {
     emergencyName: j['emergency_name'] as String?,
     emergencyPhone: j['emergency_phone'] as String?,
     notes: j['notes'] as String?,
+    hasPhoto: j['has_photo'] as bool? ?? false,
   );
   final String id, name;
   final String? phone, userid, email, busId, busLabel;
@@ -80,6 +83,9 @@ class AdminDriver {
   final String? notes;
   final DateTime? licenceExpiry;
   final bool active, mustChangePassword, locked;
+
+  /// A passport photo is stored (`has_photo`).
+  final bool hasPhoto;
 
   /// What the list tile shows under the name: userid, email and phone.
   String get contactLine {
@@ -367,6 +373,10 @@ class AdminStudent {
     this.adminNote,
     this.reviewedAt,
     required this.createdAt,
+    this.enrollmentNo,
+    this.hasPhoto = false,
+    this.homeAddress,
+    this.deregistration,
   });
 
   factory AdminStudent.fromJson(Json j) => AdminStudent(
@@ -387,6 +397,12 @@ class AdminStudent {
     adminNote: j['admin_note'] as String?,
     reviewedAt: parseTimeOrNull(j['reviewed_at']),
     createdAt: parseTime(j['created_at']),
+    enrollmentNo: j['enrollment_no'] as String?,
+    hasPhoto: j['has_photo'] as bool? ?? false,
+    homeAddress: j['home_address'] as String?,
+    deregistration: j['deregistration'] == null
+        ? null
+        : DeregistrationRequest.fromJson(j['deregistration'] as Json),
   );
 
   /// The student's user id.
@@ -403,6 +419,14 @@ class AdminStudent {
   final String? adminNote;
   final DateTime? reviewedAt;
   final DateTime createdAt;
+  final String? enrollmentNo;
+  final bool hasPhoto;
+
+  /// Only in `GET /admin/students/{id}`; the list rows never carry it.
+  final String? homeAddress;
+
+  /// Latest deregistration request, detail only.
+  final DeregistrationRequest? deregistration;
 
   bool get canReview => registrationState == 'registered' && status != null;
 
@@ -601,3 +625,60 @@ const campusClearPayload = <String, dynamic>{
   'campus_lat': null,
   'campus_lng': null,
 };
+
+/// `GET /admin/deregistrations` item: a student asking to have their account
+/// deleted. Approving it deletes the account.
+class AdminDeregistration {
+  const AdminDeregistration({
+    required this.id,
+    required this.status,
+    required this.createdAt,
+    required this.userId,
+    required this.name,
+    this.reason,
+    this.adminNote,
+    this.reviewedAt,
+    this.email,
+    this.enrollmentNo,
+    this.department,
+  });
+
+  factory AdminDeregistration.fromJson(Json j) => AdminDeregistration(
+    id: j['id'] as String,
+    status: DeregistrationStatus.parse(j['status']),
+    reason: j['reason'] as String?,
+    adminNote: j['admin_note'] as String?,
+    createdAt: parseTime(j['created_at']),
+    reviewedAt: parseTimeOrNull(j['reviewed_at']),
+    userId: j['user_id'] as String,
+    name: j['name'] as String,
+    email: j['email'] as String?,
+    enrollmentNo: j['enrollment_no'] as String?,
+    department: j['department'] as String?,
+  );
+
+  final String id, userId, name;
+  final DeregistrationStatus status;
+  final String? reason, adminNote, email, enrollmentNo, department;
+  final DateTime createdAt;
+  final DateTime? reviewedAt;
+}
+
+/// What a student registration still lacks before the server will approve it
+/// (name, phone, department, enrollment number, home address, route, photo).
+/// [homeAddressKnown] is false until the detail has loaded: the list rows do
+/// not carry the address.
+List<String> missingRegistrationFields(
+  AdminStudent s, {
+  required bool homeAddressKnown,
+}) {
+  bool blank(String? v) => v == null || v.trim().isEmpty;
+  return [
+    if (blank(s.phone)) 'phone',
+    if (blank(s.department)) 'department',
+    if (blank(s.enrollmentNo)) 'enrollment number',
+    if (homeAddressKnown && blank(s.homeAddress)) 'home address',
+    if (blank(s.routeId)) 'route',
+    if (!s.hasPhoto) 'photo',
+  ];
+}

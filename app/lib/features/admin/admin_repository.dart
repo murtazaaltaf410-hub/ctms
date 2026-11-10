@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../../core/api/api_client.dart';
@@ -90,9 +92,14 @@ class AdminRepository {
   Future<StudentSummary> studentSummary() async =>
       StudentSummary.fromJson(await _api.get('admin/students/summary') as Json);
 
-  Future<AdminStudent> approveStudent(String id, String busId) async =>
+  /// `GET /admin/students/{id}`: the row plus address and deregistration.
+  Future<AdminStudent> student(String id) async =>
+      AdminStudent.fromJson(await _api.get('admin/students/$id') as Json);
+
+  /// With [busId] the manual path; without it the server auto-assigns a bus.
+  Future<AdminStudent> approveStudent(String id, [String? busId]) async =>
       AdminStudent.fromJson(
-        await _api.post('admin/students/$id/approve', body: {'bus_id': busId})
+        await _api.post('admin/students/$id/approve', body: {'bus_id': ?busId})
             as Json,
       );
 
@@ -107,6 +114,42 @@ class AdminRepository {
         await _api.post('admin/students/$id/reject', body: {'note': note})
             as Json,
       );
+
+  // --- deregistration requests (V1.3) ---------------------------------------
+  Future<List<AdminDeregistration>> deregistrations({
+    String status = 'pending',
+  }) => _page(
+    'admin/deregistrations',
+    AdminDeregistration.fromJson,
+    query: {'status': status, 'limit': 200},
+  );
+
+  /// Deletes the student's account and all its data.
+  Future<void> approveDeregistration(String id) =>
+      _api.post('admin/deregistrations/$id/approve');
+
+  Future<void> rejectDeregistration(String id, String note) =>
+      _api.post('admin/deregistrations/$id/reject', body: {'note': note});
+
+  Future<AdminDriver> driver(String id) async =>
+      AdminDriver.fromJson(await _api.get('admin/drivers/$id') as Json);
+
+  /// `PUT /admin/drivers/{id}/photo`: the raw JPEG body (not JSON/multipart).
+  Future<AdminDriver> uploadDriverPhoto(String id, Uint8List jpeg) async {
+    try {
+      final response = await _api.dio.put<dynamic>(
+        'admin/drivers/$id/photo',
+        data: jpeg,
+        options: Options(
+          contentType: 'image/jpeg',
+          headers: {Headers.contentLengthHeader: jpeg.length},
+        ),
+      );
+      return AdminDriver.fromJson(response.data as Json);
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
 
   /// Returns the one-time temporary password.
   Future<String> createDriver(AdminDriverInput input) async {

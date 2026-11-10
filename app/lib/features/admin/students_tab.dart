@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
-import '../../core/api/api_exception.dart';
 import '../../core/models/registration.dart';
+import '../../core/ui/theme.dart';
 import '../../core/ui/widgets/state_views.dart';
+import '../student/widgets/photo_views.dart';
 import 'admin_models.dart';
 import 'admin_providers.dart';
+import 'student_detail_screen.dart';
 
 /// Admin Students section: counts and seats, status filter, search, paged list.
 class StudentsTab extends ConsumerStatefulWidget {
@@ -57,7 +58,7 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
     return RefreshIndicator(
       onRefresh: () async => refreshStudents(ref),
       child: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         children: [
           _SummaryCard(
             summary: summary,
@@ -66,7 +67,7 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
             onSelect: (status) =>
                 ref.read(adminStudentFilterProvider.notifier).setStatus(status),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           TextField(
             key: const Key('student-search'),
             controller: _search,
@@ -74,10 +75,10 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
             textInputAction: TextInputAction.search,
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
-              labelText: 'Search name, email, phone or department',
+              labelText: 'Search name, email, enrollment, phone or department',
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           students.when(
             // Keep the list on screen while it reloads after an action.
             skipLoadingOnReload: true,
@@ -106,14 +107,11 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
                           : 'Try another status or search term.',
                     ),
                   ),
-                for (final student in state.items)
-                  _StudentTile(
-                    student: student,
-                    onTap: () => _openDetail(student),
-                  ),
+                if (state.items.isNotEmpty)
+                  _StudentTable(students: state.items, onOpen: _openDetail),
                 if (state.hasMore)
                   Padding(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.only(top: 12),
                     child: OutlinedButton(
                       key: const Key('students-load-more'),
                       onPressed: () =>
@@ -129,12 +127,12 @@ class _StudentsTabState extends ConsumerState<StudentsTab> {
     );
   }
 
-  Future<void> _openDetail(AdminStudent student) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (_) => StudentDetailSheet(student: student),
-  );
+  Future<void> _openDetail(AdminStudent student) => Navigator.of(context)
+      .push<void>(
+        MaterialPageRoute(
+          builder: (_) => StudentDetailScreen(student: student),
+        ),
+      );
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -157,14 +155,15 @@ class _SummaryCard extends StatelessWidget {
     String count(RegistrationStatus? status) =>
         data == null ? '' : ' (${totals.forStatus(status)})';
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Wrap(
-              spacing: 8,
-              runSpacing: 4,
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 ChoiceChip(
                   key: const Key('filter-all'),
@@ -195,11 +194,11 @@ class _SummaryCard extends StatelessWidget {
                 ),
               ),
             if (data != null && data.buses.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text('Seats', style: Theme.of(context).textTheme.titleSmall),
               for (final bus in data.buses)
                 Padding(
-                  padding: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     bus.describe(_servedRouteNames(bus, routeNames)),
                     key: Key('bus-seats-${bus.busId}'),
@@ -213,322 +212,148 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _StudentTile extends StatelessWidget {
-  const _StudentTile({required this.student, required this.onTap});
+/// Narrowest the table gets; below it the table scrolls sideways.
+const _tableMinWidth = 980.0;
 
-  final AdminStudent student;
-  final VoidCallback onTap;
+/// Students as a table: photo, name, email, enrollment no., department, route,
+/// bus, status. A row opens the full-screen detail page.
+class _StudentTable extends StatelessWidget {
+  const _StudentTable({required this.students, required this.onOpen});
+
+  final List<AdminStudent> students;
+  final ValueChanged<AdminStudent> onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final details = [
-      ?student.department,
-      ?student.routeName,
-      if (student.busLabel != null) 'Bus ${student.busLabel}',
-    ].join(' · ');
+    final c = context.ctms;
     return Card(
-      child: ListTile(
-        key: Key('student-${student.id}'),
-        title: Text(student.fullName),
-        subtitle: Text(details.isEmpty ? 'No details' : details),
-        trailing: StatusChip(student: student),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-class StatusChip extends StatelessWidget {
-  const StatusChip({super.key, required this.student});
-
-  final AdminStudent student;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = switch (student.registrationState) {
-      'unregistered' => scheme.surfaceContainerHighest,
-      'incomplete' => scheme.errorContainer,
-      _ => switch (student.status) {
-        RegistrationStatus.pending => scheme.tertiaryContainer,
-        RegistrationStatus.approved => scheme.primaryContainer,
-        RegistrationStatus.rejected => scheme.errorContainer,
-        null => scheme.surfaceContainerHighest,
-      },
-    };
-    return Chip(
-      label: Text(student.stateLabel),
-      backgroundColor: color,
-      visualDensity: VisualDensity.compact,
-    );
-  }
-}
-
-/// One registration with its actions. Failures (such as 409 NO_SEAT) are shown
-/// inside the sheet so they are not hidden behind it.
-class StudentDetailSheet extends ConsumerStatefulWidget {
-  const StudentDetailSheet({super.key, required this.student});
-
-  final AdminStudent student;
-
-  @override
-  ConsumerState<StudentDetailSheet> createState() => _StudentDetailSheetState();
-}
-
-class _StudentDetailSheetState extends ConsumerState<StudentDetailSheet> {
-  bool _busy = false;
-  String? _error;
-
-  AdminStudent get _s => widget.student;
-
-  Future<void> _perform(Future<void> Function() action) async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await action();
-      if (!mounted) return;
-      refreshStudents(ref);
-      Navigator.pop(context);
-    } on ApiException catch (e) {
-      // NO_SEAT carries the specific bus and counts; show them as sent.
-      final message = e.code == ApiErrorCode.noSeat && e.message != null
-          ? e.message!
-          : e.userMessage;
-      if (mounted) setState(() => _error = message);
-      refreshStudents(ref);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  /// Asks which bus; null when the admin cancels or no bus is available.
-  Future<String?> _chooseBus({required bool reassign}) async {
-    final StudentSummary summary;
-    try {
-      // Capacity changes independently of this sheet. Read a new summary before
-      // showing choices; the server remains the final, locked seat check.
-      ref.invalidate(adminStudentSummaryProvider);
-      summary = await ref.read(adminStudentSummaryProvider.future);
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.userMessage);
-      return null;
-    }
-    final routeBuses = [
-      for (final bus in summary.buses)
-        if (bus.servesRoute(_s.routeId)) bus,
-    ];
-    final candidates = [
-      for (final bus in routeBuses)
-        if ((!reassign || bus.busId != _s.busId) && bus.hasFreeSeat) bus,
-    ];
-    if (!mounted) return null;
-    if (candidates.isEmpty) {
-      final route = _s.routeName ?? 'this route';
-      final unset = routeBuses.where((bus) => bus.capacity == null).toList();
-      setState(
-        () => _error = routeBuses.isEmpty
-            ? 'No active bus serves $route. Set a bus route before approving.'
-            : unset.isNotEmpty
-            ? 'Set capacity for ${unset.map((bus) => bus.label).join(', ')} before approving.'
-            : 'No bus on $route has a free seat. Add a bus or increase capacity under Buses.',
-      );
-      return null;
-    }
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: Text(reassign ? 'Move to which bus?' : 'Approve on which bus?'),
-        children: [
-          for (final bus in candidates)
-            SimpleDialogOption(
-              key: Key('pick-bus-${bus.busId}'),
-              onPressed: () => Navigator.pop(dialogContext, bus.busId),
-              child: Text('${bus.label}: ${bus.seatsLeft} seats left'),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth < _tableMinWidth
+              ? _tableMinWidth
+              : constraints.maxWidth;
+          return SingleChildScrollView(
+            key: const Key('students-table'),
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: width,
+              child: Column(
+                children: [
+                  _TableRow(
+                    header: true,
+                    cells: const [
+                      'Name',
+                      'Email',
+                      'Enrollment no.',
+                      'Department',
+                      'Route',
+                      'Bus',
+                    ],
+                    photo: const SizedBox.shrink(),
+                    status: Text(
+                      'Status',
+                      style: CtmsText.ui(
+                        context,
+                        12,
+                        FontWeight.w600,
+                      ).copyWith(color: c.muted),
+                    ),
+                  ),
+                  for (final student in students)
+                    _TableRow(
+                      key: Key('student-${student.id}'),
+                      onTap: () => onOpen(student),
+                      cells: [
+                        student.fullName,
+                        student.email ?? '',
+                        student.enrollmentNo ?? '',
+                        student.department ?? '',
+                        student.routeName ?? '',
+                        student.busLabel ?? '',
+                      ],
+                      photo: student.hasPhoto
+                          ? StudentPhotoImage(
+                              userId: student.id,
+                              width: 32,
+                              radius: 6,
+                            )
+                          : const PhotoBox(bytes: null, width: 32, radius: 6),
+                      status: StatusChip(student: student),
+                    ),
+                ],
+              ),
             ),
-        ],
+          );
+        },
       ),
     );
   }
+}
 
-  Future<void> _assign({required bool reassign}) async {
-    final busId = await _chooseBus(reassign: reassign);
-    if (busId == null || !mounted) return;
-    await _perform(() async {
-      final repo = ref.read(adminRepositoryProvider);
-      if (reassign) {
-        await repo.reassignStudent(_s.id, busId);
-      } else {
-        await repo.approveStudent(_s.id, busId);
-      }
-    });
-  }
+const _cellFlex = [3, 4, 3, 3, 3, 2];
 
-  Future<void> _reject() async {
-    final note = await showDialog<String>(
-      context: context,
-      builder: (_) => const _RejectDialog(),
-    );
-    if (note == null || !mounted) return;
-    await _perform(
-      () => ref.read(adminRepositoryProvider).rejectStudent(_s.id, note),
-    );
-  }
+class _TableRow extends StatelessWidget {
+  const _TableRow({
+    super.key,
+    required this.cells,
+    required this.photo,
+    required this.status,
+    this.header = false,
+    this.onTap,
+  });
+
+  final List<String> cells;
+  final Widget photo, status;
+  final bool header;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final s = _s;
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+    final c = context.ctms;
+    final style = header
+        ? CtmsText.ui(context, 12, FontWeight.w600).copyWith(color: c.muted)
+        : CtmsText.ui(context, 14);
+    final row = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: header ? 40 : 56),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(s.fullName, style: theme.textTheme.titleLarge),
-                ),
-                StatusChip(student: s),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _row('Email', s.email),
-            _row('Phone', s.phone),
-            _row('Department', s.department),
-            _row('Route', s.routeName),
-            _row('Requested bus number', s.requestedBusLabel),
-            _row(
-              'Says registered with transport',
-              s.claimsRegistered ? 'Yes (verify)' : 'No (seat request)',
-            ),
-            _row('Assigned bus', s.busLabel),
-            if (s.approvalDiagnostic != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  s.approvalDiagnostic!,
-                  key: const Key('student-registration-diagnostic'),
-                  style: TextStyle(color: theme.colorScheme.error),
+            SizedBox(width: 32, child: photo),
+            const SizedBox(width: 12),
+            for (var i = 0; i < cells.length; i++)
+              Expanded(
+                flex: _cellFlex[i],
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Text(
+                    cells[i].isEmpty && !header ? '-' : cells[i],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: i == 0 && !header
+                        ? style.copyWith(fontWeight: FontWeight.w600)
+                        : style,
+                  ),
                 ),
               ),
-            if (s.adminNote != null) _row('Office note', s.adminNote),
-            _row(
-              'Submitted',
-              DateFormat.yMMMd().add_jm().format(s.createdAt.toLocal()),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  _error!,
-                  key: const Key('student-action-error'),
-                  style: TextStyle(color: theme.colorScheme.error),
-                ),
-              ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (s.canReview && s.status != RegistrationStatus.approved)
-                  FilledButton(
-                    key: const Key('student-approve'),
-                    onPressed: _busy ? null : () => _assign(reassign: false),
-                    child: const Text('Approve'),
-                  ),
-                if (s.canReview && s.status == RegistrationStatus.approved)
-                  FilledButton.tonal(
-                    key: const Key('student-reassign'),
-                    onPressed: _busy ? null : () => _assign(reassign: true),
-                    child: const Text('Reassign bus'),
-                  ),
-                if (s.canReview && s.status != RegistrationStatus.rejected)
-                  OutlinedButton(
-                    key: const Key('student-reject'),
-                    onPressed: _busy ? null : _reject,
-                    child: const Text('Reject'),
-                  ),
-              ],
+            SizedBox(
+              width: 110,
+              child: Align(alignment: Alignment.centerLeft, child: status),
             ),
           ],
         ),
       ),
     );
-  }
-
-  Widget _row(String label, String? value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: 150,
-          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ),
-        Expanded(
-          child: Text(value == null || value.isEmpty ? 'Not given' : value),
-        ),
+        if (onTap == null) row else InkWell(onTap: onTap, child: row),
+        Divider(height: 1, color: c.border),
       ],
-    ),
-  );
-}
-
-/// Rejecting needs a reason the student will read.
-class _RejectDialog extends StatefulWidget {
-  const _RejectDialog();
-
-  @override
-  State<_RejectDialog> createState() => _RejectDialogState();
-}
-
-class _RejectDialogState extends State<_RejectDialog> {
-  final _note = TextEditingController();
-  String? _error;
-
-  @override
-  void dispose() {
-    _note.dispose();
-    super.dispose();
+    );
   }
-
-  void _submit() {
-    final text = _note.text.trim();
-    if (text.isEmpty) {
-      setState(() => _error = 'Write a short reason for the student');
-      return;
-    }
-    Navigator.pop(context, text);
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Reject registration'),
-    content: TextField(
-      key: const Key('reject-note'),
-      controller: _note,
-      maxLength: 500,
-      maxLines: 3,
-      decoration: InputDecoration(
-        labelText: 'Reason (shown to the student)',
-        errorText: _error,
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        key: const Key('reject-confirm'),
-        onPressed: _submit,
-        child: const Text('Reject'),
-      ),
-    ],
-  );
 }
 
 /// "North Loop / Far Loop": every route the bus serves, not only its own.

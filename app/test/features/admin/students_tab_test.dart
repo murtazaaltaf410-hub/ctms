@@ -1,4 +1,5 @@
 import 'package:ctms/core/models/user.dart';
+import 'package:ctms/core/ui/theme.dart';
 import 'package:ctms/features/admin/bus_form_dialog.dart';
 import 'package:ctms/features/admin/admin_models.dart';
 import 'package:ctms/features/admin/students_tab.dart';
@@ -110,6 +111,19 @@ void main() {
         }
         return jsonBody(200, {'items': items, 'next_cursor': null});
       }
+      final detail = RegExp(r'^admin/students/(\w+)$').firstMatch(o.path);
+      if (o.method == 'GET' && detail != null) {
+        final row = all.where((s) => s['id'] == detail.group(1)).toList();
+        return row.isEmpty
+            ? errorBody(404, 'NOT_FOUND')
+            : jsonBody(200, {
+                'enrollment_no': 'NC-2026-001',
+                'has_photo': true,
+                'home_address': 'Sopore, Baramulla',
+                'deregistration': null,
+                ...row.first,
+              });
+      }
       if (o.method == 'POST' && o.path.endsWith('/approve')) {
         return jsonBody(
           200,
@@ -117,7 +131,7 @@ void main() {
             's1',
             'Aisha Khan',
             status: 'approved',
-            busId: (o.data as Map)['bus_id'] as String,
+            busId: (o.data as Map)['bus_id'] as String? ?? 'b1',
             busLabel: 'Bus 1',
           ),
         );
@@ -152,7 +166,10 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: h.container,
-        child: const MaterialApp(home: Scaffold(body: StudentsTab())),
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(body: StudentsTab()),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -216,13 +233,59 @@ void main() {
     expect(find.byKey(const Key('students-load-more')), findsNothing);
   });
 
-  testWidgets('detail sheet shows the registration', (tester) async {
+  testWidgets('table shows name, email, enrollment, department, route, bus', (
+    tester,
+  ) async {
+    all = [
+      {
+        ...adminStudentJson(
+          's3',
+          'Chand Lone',
+          status: 'approved',
+          busId: 'b1',
+          busLabel: 'Bus 1',
+        ),
+        'enrollment_no': 'NC-77',
+        'has_photo': false,
+      },
+    ];
+    await pump(tester);
+    for (final text in [
+      'Name',
+      'Enrollment no.',
+      'Chand Lone',
+      's3@uok.edu.in',
+      'NC-77',
+      'Physics',
+      'North Loop',
+      'Bus 1',
+      'Approved',
+    ]) {
+      expect(find.text(text), findsWidgets, reason: text);
+    }
+  });
+
+  testWidgets('search also matches the enrollment number (sent as q)', (
+    tester,
+  ) async {
+    await pump(tester);
+    await tester.enterText(find.byKey(const Key('student-search')), 'NC-9');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(h.adapter.to('admin/students').last.queryParameters['q'], 'NC-9');
+  });
+
+  testWidgets('detail page shows the registration', (tester) async {
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
     expect(find.text('s1@uok.edu.in'), findsOneWidget);
+    expect(find.text('NC-2026-001'), findsOneWidget);
+    expect(find.text('Sopore, Baramulla'), findsOneWidget);
     expect(find.text('No (seat request)'), findsOneWidget);
+    expect(find.byKey(const Key('student-photo')), findsOneWidget);
     expect(find.byKey(const Key('student-approve')), findsOneWidget);
+    expect(find.byKey(const Key('student-approve-manual')), findsOneWidget);
     expect(find.byKey(const Key('student-reject')), findsOneWidget);
     expect(find.byKey(const Key('student-reassign')), findsNothing);
   });
@@ -260,7 +323,7 @@ void main() {
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.tap(find.byKey(const Key('student-approve-manual')));
     await tester.pumpAndSettle();
     // Bus 1 has seats; Bus 2 is full; Bus 9 is on another route.
     expect(find.byKey(const Key('pick-bus-b1')), findsOneWidget);
@@ -288,7 +351,7 @@ void main() {
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.tap(find.byKey(const Key('student-approve-manual')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pick-bus-b1')));
     await tester.pumpAndSettle();
@@ -313,7 +376,7 @@ void main() {
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.tap(find.byKey(const Key('student-approve-manual')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('pick-bus-b7')), findsOneWidget);
     expect(find.byKey(const Key('pick-bus-b9')), findsNothing);
@@ -328,7 +391,7 @@ void main() {
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.tap(find.byKey(const Key('student-approve-manual')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('student-action-error')), findsOneWidget);
     expect(
@@ -356,15 +419,124 @@ void main() {
           'next_cursor': null,
         });
       }
+      if (o.method == 'GET' && o.path == 'admin/students/s1') {
+        return jsonBody(200, {
+          ...all.first,
+          'enrollment_no': 'NC-1',
+          'has_photo': true,
+          'home_address': 'Sopore',
+        });
+      }
       return errorBody(404, 'NOT_FOUND');
     };
     await pump(tester);
     await tester.tap(find.byKey(const Key('student-s1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.tap(find.byKey(const Key('student-approve-manual')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Set capacity for Bus 1'), findsOneWidget);
     expect(posts('/approve'), isEmpty);
+  });
+
+  testWidgets('Approve auto-assigns: no bus in the request', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('student-approve')));
+    await tester.pumpAndSettle();
+    expect(posts('/approve').single.path, 'admin/students/s1/approve');
+    expect(posts('/approve').single.data, <String, dynamic>{});
+    expect(find.byKey(const Key('student-approve')), findsNothing);
+  });
+
+  testWidgets('missing photo and fields warn and block approval', (
+    tester,
+  ) async {
+    final base = h.adapter.handler;
+    h.adapter.handler = (o) =>
+        o.method == 'GET' && o.path == 'admin/students/s1'
+        ? jsonBody(200, {
+            ...all.first,
+            'enrollment_no': null,
+            'has_photo': false,
+            'home_address': null,
+            'deregistration': null,
+          })
+        : base(o);
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('student-no-photo')), findsOneWidget);
+    expect(
+      find.textContaining('Missing: enrollment number, home address, photo'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('student-approve')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const Key('student-approve-manual')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('detail shows the deregistration state', (tester) async {
+    final base = h.adapter.handler;
+    h.adapter.handler = (o) =>
+        o.method == 'GET' && o.path == 'admin/students/s1'
+        ? jsonBody(200, {
+            ...all.first,
+            'enrollment_no': 'NC-1',
+            'has_photo': true,
+            'home_address': 'Sopore',
+            'deregistration': {
+              'id': 'd1',
+              'status': 'pending',
+              'reason': 'Moving away',
+              'admin_note': null,
+              'created_at': '2026-11-05T08:00:00Z',
+              'reviewed_at': null,
+            },
+          })
+        : base(o);
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('student-s1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Deregistration requested'), findsOneWidget);
+    expect(find.text('Moving away'), findsOneWidget);
+  });
+
+  testWidgets('no overflow at 360 px wide with 1.5x text', (tester) async {
+    tester.view.physicalSize = const Size(360, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: h.container,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: const Scaffold(body: StudentsTab()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Aisha Khan'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('student-approve')), findsOneWidget);
   });
 
   testWidgets('reject needs a note', (tester) async {
