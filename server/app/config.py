@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 30
     settings_cache_ttl_s: float = 30
     log_level: str = "INFO"
+    cors_origins: list[str] = ["http://localhost:5173"]
 
     # --- Rate limits (ADR-3) ----------------------------------------------------
     rate_general_per_user: int = 120
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
 
     # --- Phase 5: admin API, Routes API (ADR-8), reports -------------------------
     # Google Routes API computeRoutes; the key is GOOGLE_DIRECTIONS_KEY (runbook name).
-    routes_api_url: str = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    routes_api_url: str = "https://googleapis.com"
     routes_api_timeout_s: float = 10
     routes_api_max_intermediates: int = 25  # Routes API limit -> at most 27 stops per route
     admin_list_limit_default: int = 50      # API spec: ?limit default 50, max 200
@@ -159,6 +160,13 @@ class Settings(BaseSettings):
     @field_validator("google_oauth_client_ids", mode="before")
     @classmethod
     def _split_client_ids(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
