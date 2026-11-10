@@ -47,7 +47,14 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 30
     settings_cache_ttl_s: float = 30
     log_level: str = "INFO"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # Explicit browser origin allow-list (CORS_ORIGINS, comma-separated). Never "*". Empty in
+    # dev/test falls back to dev_cors_origins; staging/production must list their own origins.
+    cors_origins: list[str] = []
+    dev_cors_origins: list[str] = ["http://localhost:5173"]
+    cors_max_age_s: int = 600
+    hsts_max_age_s: int = 31_536_000  # sent only when APP_ENV=production
+    security_permissions_policy: str = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    ws_origin_reject_code: int = 1008
 
     # --- Rate limits (ADR-3) ----------------------------------------------------
     rate_general_per_user: int = 120
@@ -170,6 +177,21 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
+
+    @field_validator("cors_origins", "dev_cors_origins", mode="after")
+    @classmethod
+    def _clean_origins(cls, value: list[str]) -> list[str]:
+        out = [v.rstrip("/") for v in value]
+        if any(v == "*" or "*" in v for v in out):
+            raise ValueError("CORS_ORIGINS must list explicit origins, never a wildcard")
+        return out
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Origins allowed for CORS and the WebSocket handshake."""
+        if self.cors_origins:
+            return list(self.cors_origins)
+        return list(self.dev_cors_origins) if self.is_dev else []
 
     @field_validator("seed_admin_email", mode="before")
     @classmethod

@@ -34,8 +34,16 @@ class AdminRepository {
       _page('announcements', AdminAnnouncement.fromJson);
   Future<List<AdminAccount>> admins() =>
       _page('admin/admins', AdminAccount.fromJson);
-  Future<List<TripReport>> trips({String? busId}) =>
-      _page('admin/trips', TripReport.fromJson, query: {'bus_id': ?busId});
+  Future<List<TripReport>> trips({
+    String? busId,
+    String? from,
+    String? to,
+    int limit = 200,
+  }) => _page(
+    'admin/trips',
+    TripReport.fromJson,
+    query: {'limit': limit, 'bus_id': ?busId, 'from': ?from, 'to': ?to},
+  );
   Future<TripPath> tripPath(String id) async =>
       TripPath.fromJson(await _api.get('admin/trips/$id/path') as Json);
   Future<double> alertRadius() async => (await settings()).alertRadiusM;
@@ -175,8 +183,15 @@ class AdminRepository {
       _api.patch('admin/announcements/$id', body: changes);
   Future<void> deleteAnnouncement(String id) =>
       _api.delete('admin/announcements/$id');
-  Future<void> addAdmin(String email) =>
-      _api.post('admin/admins', body: {'email': email});
+
+  /// Returns a temporary password only if the server issued one (shown once
+  /// by the caller, never kept); admins normally sign in with Google.
+  Future<String?> addAdmin(String email) async {
+    final body = await _api.post('admin/admins', body: {'email': email});
+    final password = body is Map ? body['temporary_password'] : null;
+    return password is String && password.isNotEmpty ? password : null;
+  }
+
   Future<void> removeAdmin(String id) => _api.delete('admin/admins/$id');
   Future<void> setAlertRadius(double metres) =>
       _api.put('admin/settings', body: {'alert_radius_m': metres});

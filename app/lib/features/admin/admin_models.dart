@@ -155,6 +155,8 @@ class AdminRoute {
     required this.stopCount,
     this.polylineError,
     this.warning,
+    this.polyline,
+    this.lengthM,
     this.stops = const [],
   });
   factory AdminRoute.fromJson(Json j) => AdminRoute(
@@ -168,6 +170,8 @@ class AdminRoute {
         0,
     polylineError: j['polyline_error'] as String?,
     warning: j['warning'] as String?,
+    polyline: j['polyline'] as String?,
+    lengthM: toDoubleOrNull(j['length_m']),
     stops: ((j['stops'] as List?) ?? const [])
         .map((e) => AdminStop.fromJson(e as Json))
         .toList(),
@@ -176,6 +180,10 @@ class AdminRoute {
   final bool active;
   final int stopCount;
   final String? polylineError, warning;
+
+  /// Encoded polyline; only present on the detail response.
+  final String? polyline;
+  final double? lengthM;
   final List<AdminStop> stops;
 }
 

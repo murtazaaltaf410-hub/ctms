@@ -1,13 +1,14 @@
+// Legacy admin tab bodies (Fleet, Routes, Schedules, Announcements, Reports,
+// Settings). They are embedded by the placeholder AdminSections until each
+// section is migrated; see docs/v1/admin-shell-contract.md. Delete a class here
+// when its section ships its own workspace.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
-import '../../core/models/live_bus.dart';
 import '../../core/models/trip.dart';
 import '../../core/ui/widgets/state_views.dart';
-import '../../realtime/live_providers.dart';
 import '../../core/util/clock_format.dart';
 import 'admin_models.dart';
 import 'campus_location_screen.dart';
@@ -17,197 +18,8 @@ import 'driver_form_screen.dart';
 import 'route_map_editor.dart';
 import 'students_tab.dart';
 
-/// Operational admin console. The live list remains useful when Maps is unavailable.
-class AdminHomeScreen extends ConsumerStatefulWidget {
-  const AdminHomeScreen({super.key});
-
-  @override
-  ConsumerState<AdminHomeScreen> createState() => _AdminHomeScreenState();
-}
-
-class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
-  var _tab = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_titles[_tab]),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _refresh,
-          ),
-          IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: () =>
-                ref.read(authControllerProvider.notifier).signOut(),
-          ),
-        ],
-      ),
-      // Mount only the active section. Several sections have a floating action
-      // button, and keeping all of them in an IndexedStack duplicates its Hero.
-      body: switch (_tab) {
-        0 => const _LiveTab(),
-        1 => const _FleetTab(),
-        2 => const _RoutesTab(),
-        3 => const _SchedulesTab(),
-        4 => const _AnnouncementsTab(),
-        5 => const _ReportsTab(),
-        _ => const _MoreTab(),
-      },
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.radar_outlined),
-            selectedIcon: Icon(Icons.radar),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.directions_bus_outlined),
-            selectedIcon: Icon(Icons.directions_bus),
-            label: 'Fleet',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.route_outlined),
-            selectedIcon: Icon(Icons.route),
-            label: 'Routes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.schedule_outlined),
-            selectedIcon: Icon(Icons.schedule),
-            label: 'Schedule',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.campaign_outlined),
-            selectedIcon: Icon(Icons.campaign),
-            label: 'Alerts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.assessment_outlined),
-            selectedIcon: Icon(Icons.assessment),
-            label: 'Reports',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.more_horiz),
-            selectedIcon: Icon(Icons.more),
-            label: 'More',
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _refresh() {
-    refreshAdmin(ref);
-    ref.read(liveBusesProvider.notifier).refetch();
-  }
-}
-
-const _titles = [
-  'Live fleet',
-  'Buses, drivers & students',
-  'Routes & stops',
-  'Timetables',
-  'Announcements',
-  'Trip history',
-  'Administration',
-];
-
-class _LiveTab extends ConsumerWidget {
-  const _LiveTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final buses = ref.watch(liveBusesProvider).values.toList()
-      ..sort((a, b) => a.label.compareTo(b.label));
-
-    return RefreshIndicator(
-      onRefresh: () => ref.read(liveBusesProvider.notifier).refetch(),
-      child: buses.isEmpty
-          ? ListView(
-              children: const [
-                SizedBox(height: 180),
-                EmptyView(
-                  title: 'No active trips',
-                  message: 'Buses appear here after a driver starts a trip.',
-                  icon: Icons.directions_bus_filled_outlined,
-                ),
-              ],
-            )
-          : ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                SizedBox(
-                  height: 280,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: LatLng(buses.first.lat, buses.first.lng),
-                        zoom: 14,
-                      ),
-                      markers: {
-                        for (final bus in buses)
-                          Marker(
-                            markerId: MarkerId(bus.busId),
-                            position: LatLng(bus.lat, bus.lng),
-                            infoWindow: InfoWindow(
-                              title: bus.label,
-                              snippet: '${bus.routeName} - ${bus.state.name}',
-                            ),
-                          ),
-                      },
-                      myLocationButtonEnabled: false,
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 16, bottom: 4),
-                  child: Text('Active buses'),
-                ),
-                ...buses.map((bus) => _liveCard(context, bus)),
-              ],
-            ),
-    );
-  }
-
-  Widget _liveCard(BuildContext context, LiveBus bus) {
-    final color = switch (bus.state) {
-      BusState.live => Colors.green,
-      BusState.stopped => Colors.amber,
-      BusState.stale => Colors.orange,
-      BusState.offline => Colors.red,
-    };
-
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color,
-          child: const Icon(Icons.directions_bus, color: Colors.white),
-        ),
-        title: Text(bus.label),
-        subtitle: Text(
-          '${bus.routeName}\n${bus.status.replaceAll('_', ' ')}'
-          '${bus.note == null ? '' : ': ${bus.note}'}\n'
-          '${bus.lat.toStringAsFixed(5)}, ${bus.lng.toStringAsFixed(5)}',
-        ),
-        isThreeLine: true,
-        trailing: Text(
-          bus.state.name,
-          style: TextStyle(color: color, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-}
-
-class _FleetTab extends ConsumerWidget {
-  const _FleetTab();
+class AdminFleetTab extends ConsumerWidget {
+  const AdminFleetTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -330,8 +142,8 @@ class _FleetTab extends ConsumerWidget {
   }
 }
 
-class _RoutesTab extends ConsumerWidget {
-  const _RoutesTab();
+class AdminRoutesTab extends ConsumerWidget {
+  const AdminRoutesTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -389,8 +201,8 @@ class _RoutesTab extends ConsumerWidget {
   }
 }
 
-class _SchedulesTab extends ConsumerWidget {
-  const _SchedulesTab();
+class AdminSchedulesTab extends ConsumerWidget {
+  const AdminSchedulesTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -443,8 +255,8 @@ class _SchedulesTab extends ConsumerWidget {
   }
 }
 
-class _AnnouncementsTab extends ConsumerWidget {
-  const _AnnouncementsTab();
+class AdminAnnouncementsTab extends ConsumerWidget {
+  const AdminAnnouncementsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -489,8 +301,8 @@ class _AnnouncementsTab extends ConsumerWidget {
   }
 }
 
-class _ReportsTab extends ConsumerWidget {
-  const _ReportsTab();
+class AdminReportsTab extends ConsumerWidget {
+  const AdminReportsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -527,8 +339,8 @@ String tripTimesText(TripReport trip) {
       'Arrived ${at(trip.arrivedAt)}';
 }
 
-class _MoreTab extends ConsumerWidget {
-  const _MoreTab();
+class AdminSettingsTab extends ConsumerWidget {
+  const AdminSettingsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

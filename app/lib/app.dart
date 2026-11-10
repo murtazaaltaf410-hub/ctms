@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth/auth_controller.dart';
+import 'core/lifecycle/lifecycle_providers.dart';
+import 'core/pwa/pwa_widgets.dart';
 import 'core/ui/theme.dart';
 import 'core/ui/widgets/connection_banner.dart';
 import 'features/student/journey_push.dart';
@@ -83,6 +85,7 @@ class _CtmsAppState extends ConsumerState<CtmsApp> {
   @override
   Widget build(BuildContext context) {
     ref.watch(liveSessionProvider);
+    ref.watch(pageLifecycleProvider);
     ref.listen(authControllerProvider, _onAuthChanged);
     ref.listen(liveMessagesProvider, (_, next) {
       final m = next.value;
@@ -106,6 +109,8 @@ class _CtmsAppState extends ConsumerState<CtmsApp> {
       builder: (context, child) => Column(
         children: [
           const ConnectionBanner(),
+          // Renders nothing on native and when no new web build is waiting.
+          const PwaUpdateBanner(),
           Expanded(
             // The banner already consumed the status-bar inset.
             child: MediaQuery.removePadding(

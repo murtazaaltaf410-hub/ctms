@@ -22,6 +22,7 @@ async def test_config_is_public_with_defaults(client):
     assert body["location_batch_max"] == 20
     assert body["timezone"] == "Asia/Kolkata"
     assert body["env"] == "test"
+    assert body["student_fix_max_age_s"] == 300
     assert body["server_time"].endswith("Z")
     assert resp.headers["cache-control"] == "public, max-age=60"
 
@@ -55,6 +56,13 @@ async def test_config_works_without_database():
         resp = await ac.get("/api/v1/config")
     assert resp.status_code == 200
     assert resp.json()["alert_radius_m"] == 500
+    assert resp.json()["student_fix_max_age_s"] == 300
+
+
+@pytest.mark.parametrize("config_overrides", [{"student_fix_max_age_s": 120}])
+async def test_config_student_fix_max_age_is_config_driven(client):
+    body = (await client.get("/api/v1/config")).json()
+    assert body["student_fix_max_age_s"] == 120
 
 
 async def test_config_in_openapi(client):

@@ -238,3 +238,20 @@ Added after the Render pilot started. These go beyond the V1 PRD; no PRD non-goa
 - **moved_at.** Set once per trip when the fix speed or the smoothed speed exceeds `moved_speed_mps` (strictly greater); queued through the live writer (`queue_trip_moved`, `update ... where moved_at is null`, re-queued if the DB is down) and reloaded by `rebuild_live`.
 - **Journey push** is sent inline from `start_trip` (not a trip listener, so a test that replaces the listeners cannot hide it). Recipients are active users with an approved profile and `bus_id` = the trip's bus; zero recipients submits nothing; any failure is logged and the start still returns 201.
 - **Admin settings.** `GET/PUT /admin/settings` now carries `alert_radius_m`, `campus_lat`, `campus_lng`, `campus_radius_m`, `last_stop_radius_m`. PUT is partial; ranges lat -90..90, lng -180..180, radii 20..5000 m (alert radius keeps its own bounds); lat and lng are set together or cleared together with `null` (the `settings` row is deleted). `GET /api/v1/config` exposes `campus_lat`, `campus_lng`, `campus_radius_m` read-only for the map pin.
+
+## ADR-11 — Student/admin PWA from the Flutter codebase; Android-only driver tracking (V1.3 extension, 2026-11-10)
+
+**Status:** PROPOSED — needs product-owner approval before W2/W3 start. Plan: `frontend/web-pwa-cross-platform-plan.md`. **Overrides** the V1 non-goal "separate web dashboard" (PRD) only once accepted.
+
+- **Surfaces.** Android app (students, drivers, admins) and an installable PWA built by `flutter build web` from `app/` (students first, admin second). iPhone/iPad use the PWA via Safari "Add to Home Screen". **Apple App Store is out of scope**; no native iOS build or wrapper.
+- **Driver boundary.** Drivers cannot start or continue trips in a browser. Web driver sessions show "Trip tracking requires the CTMS Android app". Android keeps the foreground service, Geolocator and durable fix queue.
+- **One codebase.** The Flutter app is the only web client. The React/Vite prototype in `frontend/` is not the PWA and its driver-tracking page violates this ADR. Decision needed: retire `frontend/` or keep it as a throwaway prototype outside the release path.
+- **Platform differences** live behind adapters (bootstrap, Firebase options, push, storage, driver tracking, student location), selected by conditional import, not `kIsWeb` in screens.
+- **Auth storage (web).** Access token in memory only. Refresh token stored through the existing `kv_store` abstraction; on web this is browser storage (`localStorage`-backed) and is therefore readable by any script on the origin. **Threat model:** XSS is the risk. Mitigations: no third-party scripts beyond Google Maps/Firebase, CSP rollout (report-only first), no tokens in URLs/logs/service-worker caches/push payloads, refresh-token rotation and `SESSION_REPLACED` kept server-side, logout and account deletion clear storage. Cookies are not used (CORS credentials stay off).
+- **Realtime.** Same `/api/v1/ws/live`, token in the first message; refetch `GET /buses/live` on every reconnect; WebSocket `Origin` is checked against the CORS allow-list (W4).
+- **Privacy.** Student browser location is opt-in, foreground-only, latest-only, server-expiring, invisible to admins. Consent, browser geolocation and notification permission are three separate gates. Service workers never cache API, location or auth data.
+- **Hosting.** Firebase Hosting for static files (staging and prod sites), Render keeps the API. Separate Firebase web apps, OAuth origins, Maps browser keys (HTTPS referrer restricted) and Web Push (VAPID) config per environment.
+- **Support matrix.** See `docs/v1/web-support-matrix.md`.
+- **Merge order.** W0 → W1 → W4 minimum → W2 → W3 → Web Push → W5.
+
+**Owner actions (cannot be done by code):** approve this ADR; decide the fate of `frontend/`; choose staging/prod hostnames and owners; register Firebase web apps and Maps browser keys; rotate any local Firebase service-account key found outside approved secret storage and record the rotation.

@@ -9,8 +9,9 @@ import 'auth/screens/sign_in_screen.dart';
 import 'auth/screens/splash_screen.dart';
 import 'core/models/registration.dart';
 import 'core/models/user.dart';
-import 'features/admin/admin_home_screen.dart';
-import 'features/driver/driver_home_screen.dart';
+import 'features/admin/shell/admin_routes.dart';
+import 'features/admin/shell/admin_section_registry.dart';
+import 'features/driver/driver_entry.dart';
 import 'features/student/registration_providers.dart';
 import 'features/student/registration_screen.dart';
 import 'features/student/student_home_screen.dart';
@@ -168,11 +169,34 @@ final routerProvider = Provider<GoRouter>((ref) {
     );
   }
 
+  String? resumeAdminLocation;
+
   final router = GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     refreshListenable: refresh,
-    redirect: (context, state) => appRedirect(input(state.matchedLocation)),
+    redirect: (context, state) {
+      final loc = state.matchedLocation;
+      final target = appRedirect(input(loc));
+      // A reload or pasted /admin/... link first passes the splash/sign-in
+      // gates; remember it and restore it once the admin lands on /admin.
+      final gated =
+          target == AppRoutes.splash ||
+          target == AppRoutes.privacyGate ||
+          _under(target ?? '', AppRoutes.signIn);
+      if (gated && _under(loc, AppRoutes.admin) && loc != AppRoutes.admin) {
+        resumeAdminLocation = state.uri.toString();
+      } else if (target == AppRoutes.admin && resumeAdminLocation != null) {
+        // go_router may evaluate the gate page twice, so keep the saved URL
+        // until the user navigates somewhere else.
+        return resumeAdminLocation;
+      } else if (target == null &&
+          _under(loc, AppRoutes.admin) &&
+          state.uri.toString() != resumeAdminLocation) {
+        resumeAdminLocation = null;
+      }
+      return target;
+    },
     routes: [
       GoRoute(path: '/', redirect: (_, _) => AppRoutes.splash),
       GoRoute(path: AppRoutes.splash, builder: (_, _) => const SplashScreen()),
@@ -219,14 +243,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.student,
         builder: (_, _) => const StudentHomeScreen(),
       ),
-      GoRoute(
-        path: AppRoutes.driver,
-        builder: (_, _) => const DriverHomeScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.admin,
-        builder: (_, _) => const AdminHomeScreen(),
-      ),
+      GoRoute(path: AppRoutes.driver, builder: (_, _) => const DriverEntry()),
+      adminShellRoute(ref.read(adminSectionsProvider)),
     ],
   );
   ref.onDispose(() {

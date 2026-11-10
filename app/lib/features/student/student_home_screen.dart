@@ -3,25 +3,79 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:intl/intl.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
-import '../../core/ui/polyline.dart';
+import '../../core/pwa/pwa_widgets.dart';
+import '../../core/ui/responsive.dart';
 import '../../core/ui/theme.dart';
 import '../../core/ui/widgets/connection_banner.dart';
-import '../../privacy/app_config.dart';
-import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import '../../realtime/live_messages.dart';
 import '../../realtime/live_providers.dart';
 import 'journey_push.dart';
-import 'pickup_screen.dart';
+import 'location_status.dart';
 import 'registration_providers.dart';
+import 'student_live_view.dart';
 import 'student_providers.dart';
+
+const _titles = ['Live buses', 'Announcements', 'Nearby alerts', 'Profile'];
+
+class _Destination {
+  const _Destination(this.label, this.icon, this.selectedIcon);
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
+
+const _destinations = [
+  _Destination('Live', Icons.directions_bus_outlined, Icons.directions_bus),
+  _Destination('Notices', Icons.campaign_outlined, Icons.campaign),
+  _Destination('Alerts', Icons.notifications_none, Icons.notifications),
+  _Destination('Profile', Icons.person_outline, Icons.person),
+];
+
+/// Side navigation for 600 px and up. Scrolls when text is scaled so it never
+/// clips on short windows.
+class _StudentRail extends StatelessWidget {
+  const _StudentRail({
+    required this.selectedIndex,
+    required this.extended,
+    required this.onSelected,
+  });
+  final int selectedIndex;
+  final bool extended;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: IntrinsicHeight(
+          child: NavigationRail(
+            key: const Key('student-rail'),
+            selectedIndex: selectedIndex,
+            onDestinationSelected: onSelected,
+            extended: extended,
+            labelType: extended
+                ? NavigationRailLabelType.none
+                : NavigationRailLabelType.all,
+            destinations: [
+              for (final d in _destinations)
+                NavigationRailDestination(
+                  icon: Icon(d.icon),
+                  selectedIcon: Icon(d.selectedIcon),
+                  label: Text(d.label),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 class StudentHomeScreen extends ConsumerStatefulWidget {
   const StudentHomeScreen({super.key});
@@ -34,10 +88,9 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
   int _tab = 0;
   String? _stopId;
   bool _listView = false;
-  StreamSubscription<Position>? _locationSubscription;
   StreamSubscription<ForegroundPush>? _pushSubscription;
-  Position? _lastUploaded;
   bool _notificationsDenied = false;
+  DateTime? _lastRefreshed;
 
   @override
   void initState() {
@@ -73,7 +126,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
 
   @override
   void dispose() {
-    _locationSubscription?.cancel();
     _pushSubscription?.cancel();
     super.dispose();
   }
@@ -93,19 +145,35 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
         );
       }
     });
-    final titles = ['Live buses', 'Announcements', 'Nearby alerts', 'Profile'];
+    ref.listen<Map<String, LiveBus>>(liveBusesProvider, (_, _) {
+      if (mounted) setState(() => _lastRefreshed = DateTime.now());
+    });
+    final windowClass = context.windowClass;
+    final body = Column(
+      children: [
+        ConnectionBanner(lastRefreshed: _lastRefreshed),
+        Expanded(
+          child: switch (_tab) {
+            0 => StudentLiveView(
+              listView: _listView,
+              onViewChanged: (value) => setState(() => _listView = value),
+              stopId: _stopId,
+              onStopChanged: (id) => setState(() => _stopId = id),
+            ),
+            1 => const _AnnouncementsTab(),
+            2 => _AlertsTab(
+              onEnabled: _enableAlerts,
+              notificationsDenied: _notificationsDenied,
+            ),
+            _ => _ProfileTab(onDelete: _deleteAccount),
+          },
+        ),
+      ],
+    );
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_tab]),
+        title: Text(_titles[_tab]),
         actions: [
-          if (_tab == 0)
-            IconButton(
-              tooltip: _listView ? 'Show map' : 'Show list',
-              onPressed: () => setState(() => _listView = !_listView),
-              icon: Icon(
-                _listView ? Icons.map_outlined : Icons.format_list_bulleted,
-              ),
-            ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: _refresh,
@@ -113,53 +181,34 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          const ConnectionBanner(),
-          Expanded(
-            child: switch (_tab) {
-              0 => _LiveTab(
-                listView: _listView,
-                stopId: _stopId,
-                onStopChanged: (id) => setState(() => _stopId = id),
-                onShowList: () => setState(() => _listView = true),
-              ),
-              1 => const _AnnouncementsTab(),
-              2 => _AlertsTab(
-                onEnabled: _enableAlerts,
-                notificationsDenied: _notificationsDenied,
-              ),
-              _ => _ProfileTab(onDelete: _deleteAccount),
-            },
-          ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (value) => setState(() => _tab = value),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.directions_bus_outlined),
-            selectedIcon: Icon(Icons.directions_bus),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.campaign_outlined),
-            selectedIcon: Icon(Icons.campaign),
-            label: 'Notices',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.notifications_none),
-            selectedIcon: Icon(Icons.notifications),
-            label: 'Alerts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-      ),
+      body: windowClass.usesRail
+          ? Row(
+              children: [
+                _StudentRail(
+                  selectedIndex: _tab,
+                  extended: windowClass.isTwoPane,
+                  onSelected: (value) => setState(() => _tab = value),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: body),
+              ],
+            )
+          : body,
+      bottomNavigationBar: windowClass.usesRail
+          ? null
+          : NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: (value) => setState(() => _tab = value),
+              destinations: [
+                for (final d in _destinations)
+                  NavigationDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: d.label,
+                    tooltip: d.label,
+                  ),
+              ],
+            ),
     );
   }
 
@@ -181,27 +230,15 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
   Future<void> _enableAlerts(bool enabled) async {
     try {
       if (enabled) {
-        final consent = await ensureConsent(
-          context,
-          ref,
-          ConsentKind.studentLocation,
-        );
-        if (!consent) return;
-        final permission = await _locationPermission();
-        if (permission == null) return;
-        await _uploadCurrentLocation();
-        _startLocationUpload(permission);
+        final result = await enableNearbyAlerts(context, ref);
+        if (result.problem != null) _message(result.problem!);
       } else {
-        await _locationSubscription?.cancel();
-        _locationSubscription = null;
+        await disableNearbyAlerts(ref);
       }
-      await ref.read(alertSettingsProvider.notifier).setEnabled(enabled);
     } on ApiException catch (e) {
       _message(
         e.message ?? 'Nearby alerts could not be updated. Please try again.',
       );
-    } on LocationServiceDisabledException {
-      _message('Turn on location services to use nearby alerts.');
     } catch (_) {
       _message('Nearby alerts could not be updated. Please try again.');
     }
@@ -220,70 +257,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
     } catch (_) {
       // Firebase is optional during local development; do not block alerts UI.
     }
-  }
-
-  Future<LocationPermission?> _locationPermission() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      _message('Turn on location services to use nearby alerts.');
-      return null;
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.deniedForever) {
-      _message(
-        'Location permission is blocked. Allow it in Settings to enable alerts.',
-      );
-      await Geolocator.openAppSettings();
-      return null;
-    }
-    if (permission == LocationPermission.denied) {
-      _message('Location permission is needed for nearby alerts.');
-      return null;
-    }
-    return permission;
-  }
-
-  Future<void> _uploadCurrentLocation() async {
-    final position = await Geolocator.getCurrentPosition();
-    await _upload(position);
-  }
-
-  void _startLocationUpload(LocationPermission permission) {
-    _locationSubscription?.cancel();
-    _locationSubscription = Geolocator.getPositionStream().listen((position) {
-      final config = ref.read(appConfigProvider).value ?? AppConfig.fallback;
-      if (_lastUploaded == null ||
-          Geolocator.distanceBetween(
-                _lastUploaded!.latitude,
-                _lastUploaded!.longitude,
-                position.latitude,
-                position.longitude,
-              ) >=
-              config.studentMoveReportM) {
-        unawaited(_upload(position));
-      }
-    });
-    if (permission != LocationPermission.always) {
-      _message(
-        'Alerts refresh while this app is open. Allow background location for continuous alerts.',
-      );
-    }
-  }
-
-  Future<void> _upload(Position position) async {
-    final config = ref.read(appConfigProvider).value ?? AppConfig.fallback;
-    if (position.accuracy >= config.studentFixMaxAccuracyM) return;
-    await ref
-        .read(studentRepositoryProvider)
-        .uploadLocation(
-          lat: position.latitude,
-          lng: position.longitude,
-          accuracy: position.accuracy,
-          recordedAt: position.timestamp,
-        );
-    _lastUploaded = position;
   }
 
   Future<void> _deleteAccount() async {
@@ -325,334 +298,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
   }
 }
 
-class _LiveTab extends ConsumerWidget {
-  const _LiveTab({
-    required this.listView,
-    required this.stopId,
-    required this.onStopChanged,
-    required this.onShowList,
-  });
-
-  final bool listView;
-  final String? stopId;
-  final ValueChanged<String?> onStopChanged;
-  final VoidCallback onShowList;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Students only ever see the route they were approved for; the server
-    // filters the buses too, this keeps the screen right if a message slips by.
-    final registration = ref.watch(registrationProvider);
-    final profile = registration.value;
-    final buses = ref.watch(liveBusesProvider).values.toList();
-    final config = ref.watch(appConfigProvider).value ?? AppConfig.fallback;
-    final selectedRoute = profile?.routeId;
-    final visible = buses
-        .where(
-          (bus) =>
-              bus.routeId == selectedRoute ||
-              (selectedRoute == null && profile == null),
-        )
-        .toList();
-    final detail = selectedRoute == null
-        ? null
-        : ref.watch(studentRouteProvider(selectedRoute));
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(registrationProvider);
-        await ref.read(liveBusesProvider.notifier).refetch();
-      },
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (profile != null)
-            Card(
-              key: const Key('student-route-card'),
-              child: ListTile(
-                leading: const Icon(Icons.route),
-                title: Text(profile.routeName ?? 'Your route'),
-                subtitle: Text(
-                  profile.busLabel == null
-                      ? 'Your route'
-                      : 'Your bus: ${profile.busLabel}',
-                ),
-              ),
-            )
-          else if (registration.isLoading)
-            const LinearProgressIndicator(),
-          const SizedBox(height: 12),
-          if (detail != null)
-            detail.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (_, _) => _RetryCard(
-                label: 'Stops could not load.',
-                onRetry: () =>
-                    ref.invalidate(studentRouteProvider(selectedRoute!)),
-              ),
-              data: (route) => _StopPicker(
-                route: route,
-                stopId: stopId,
-                onChanged: onStopChanged,
-              ),
-            ),
-          const SizedBox(height: 16),
-          if (!listView && visible.isNotEmpty)
-            _BusMap(buses: visible, route: detail?.value)
-          else
-            _BusList(buses: visible, config: config),
-          if (!listView)
-            TextButton.icon(
-              onPressed: onShowList,
-              icon: const Icon(Icons.format_list_bulleted),
-              label: const Text('Map unavailable? Show bus list'),
-            ),
-          if (stopId != null)
-            _EtaCard(stopId: stopId!, cap: config.etaDisplayCap),
-          const SizedBox(height: 8),
-          _PickupCard(route: detail?.value),
-        ],
-      ),
-    );
-  }
-}
-
-/// "Request a pickup": a temporary pin the driver sees as a waiting student.
-class _PickupCard extends ConsumerWidget {
-  const _PickupCard({required this.route});
-
-  final RouteDetail? route;
-
-  Future<void> _cancel(
-    BuildContext context,
-    WidgetRef ref,
-    Pickup pickup,
-  ) async {
-    try {
-      await ref.read(studentRepositoryProvider).cancelPickup(pickup.id);
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not cancel. Try again.')),
-        );
-      }
-    } finally {
-      ref.invalidate(myPickupProvider);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final pickup = ref.watch(myPickupProvider).value;
-    if (pickup != null) {
-      final minutes = pickup.expiresAt.difference(DateTime.now()).inMinutes;
-      return Card(
-        child: ListTile(
-          leading: const Icon(Icons.place),
-          title: Text('Pickup requested · ${pickup.direction.label}'),
-          subtitle: Text(
-            [
-              pickup.routeName,
-              if (pickup.label != null) pickup.label!,
-              if (minutes > 0) 'expires in $minutes min',
-            ].join(' · '),
-          ),
-          trailing: TextButton(
-            onPressed: () => _cancel(context, ref, pickup),
-            child: const Text('Cancel'),
-          ),
-        ),
-      );
-    }
-    final current = route;
-    return OutlinedButton.icon(
-      onPressed: current == null
-          ? null
-          : () async {
-              final requested = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => PickupScreen(route: current)),
-              );
-              if (requested == true && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Pickup requested. The driver will be told.'),
-                  ),
-                );
-              }
-            },
-      icon: const Icon(Icons.place_outlined),
-      label: const Text('Request a pickup'),
-    );
-  }
-}
-
-class _StopPicker extends StatelessWidget {
-  const _StopPicker({
-    required this.route,
-    required this.stopId,
-    required this.onChanged,
-  });
-  final RouteDetail route;
-  final String? stopId;
-  final ValueChanged<String?> onChanged;
-  @override
-  Widget build(BuildContext context) => DropdownButtonFormField<String>(
-    initialValue: stopId,
-    decoration: const InputDecoration(labelText: 'Stop for ETA'),
-    hint: const Text('Choose a stop'),
-    items: route.stops
-        .map(
-          (stop) => DropdownMenuItem(
-            value: stop.id,
-            child: Text('${stop.sequence}. ${stop.name}'),
-          ),
-        )
-        .toList(),
-    onChanged: onChanged,
-  );
-}
-
-class _BusMap extends StatelessWidget {
-  const _BusMap({required this.buses, required this.route});
-  final List<LiveBus> buses;
-  final RouteDetail? route;
-  @override
-  Widget build(BuildContext context) {
-    final center = LatLng(buses.first.lat, buses.first.lng);
-    return SizedBox(
-      height: 300,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: GoogleMap(
-          initialCameraPosition: CameraPosition(target: center, zoom: 14),
-          markers: {
-            for (final bus in buses)
-              Marker(
-                markerId: MarkerId(bus.busId),
-                position: LatLng(bus.lat, bus.lng),
-                infoWindow: InfoWindow(
-                  title: bus.label,
-                  snippet:
-                      '${bus.routeName} · ${bus.direction.label} · ${_statusText(bus.status)}',
-                ),
-              ),
-            for (final stop in route?.stops ?? <Stop>[])
-              Marker(
-                markerId: MarkerId('stop-${stop.id}'),
-                position: LatLng(stop.lat, stop.lng),
-                infoWindow: InfoWindow(title: stop.name),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-              ),
-          },
-          polylines: route?.polyline == null
-              ? const {}
-              : {
-                  Polyline(
-                    polylineId: const PolylineId('route'),
-                    points: decodePolyline(route!.polyline!),
-                    color: AppTheme.seed,
-                    width: 5,
-                  ),
-                },
-          myLocationButtonEnabled: false,
-        ),
-      ),
-    );
-  }
-}
-
-class _BusList extends StatelessWidget {
-  const _BusList({required this.buses, required this.config});
-  final List<LiveBus> buses;
-  final AppConfig config;
-  @override
-  Widget build(BuildContext context) {
-    if (buses.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(
-          child: Text(
-            'No bus is running on your route right now',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-    final now = DateTime.now().toUtc();
-    return Column(
-      children: buses.map((bus) {
-        final state = bus.stateAt(
-          now,
-          staleAfter: config.staleAfter,
-          offlineAfter: config.offlineAfter,
-        );
-        return Card(
-          child: ListTile(
-            leading: Icon(Icons.directions_bus, color: _stateColor(state)),
-            title: Text(bus.label),
-            subtitle: Text(
-              '${bus.routeName} · ${bus.direction.label}\n${_statusText(bus.status)}${bus.note == null ? '' : ': ${bus.note}'}',
-            ),
-            isThreeLine: true,
-            trailing: Text(_stateText(state), textAlign: TextAlign.end),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _EtaCard extends ConsumerWidget {
-  const _EtaCard({required this.stopId, required this.cap});
-  final String stopId;
-  final Duration cap;
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => ref
-      .watch(stopEtaProvider(stopId))
-      .when(
-        loading: () => const Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-        error: (_, _) => _RetryCard(
-          label: 'ETA could not load.',
-          onRetry: () => ref.invalidate(stopEtaProvider(stopId)),
-        ),
-        data: (eta) => Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Next buses',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                if (eta.etas.isEmpty)
-                  Text(
-                    eta.nextScheduled == null
-                        ? 'No active bus is approaching this stop.'
-                        : 'Next scheduled departure: ${_clock(eta.nextScheduled!)}',
-                  ),
-                ...eta.etas.map(
-                  (bus) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(bus.label),
-                    subtitle: Text(
-                      '${_statusText(bus.status)}${bus.note == null ? '' : ': ${bus.note}'}',
-                    ),
-                    trailing: Text(_etaText(bus, cap)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-}
-
 class _AnnouncementsTab extends ConsumerWidget {
   const _AnnouncementsTab();
   @override
@@ -660,7 +305,7 @@ class _AnnouncementsTab extends ConsumerWidget {
       .watch(announcementsProvider)
       .when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, _) => _RetryCard(
+        error: (_, _) => RetryCard(
           label: 'Announcements could not load.',
           onRetry: () => ref.read(announcementsProvider.notifier).refresh(),
         ),
@@ -678,7 +323,9 @@ class _AnnouncementsTab extends ConsumerWidget {
                 (item) => Card(
                   child: ListTile(
                     title: Text(item.title),
-                    subtitle: Text('${item.body}\n${_clock(item.createdAt)}'),
+                    subtitle: Text(
+                      '${item.body}\n${formatTimestamp(item.createdAt)}',
+                    ),
                     isThreeLine: true,
                     leading: item.urgent
                         ? const Icon(
@@ -727,7 +374,7 @@ class _AlertsTab extends ConsumerWidget {
           ),
         settings.when(
           loading: () => const LinearProgressIndicator(),
-          error: (_, _) => _RetryCard(
+          error: (_, _) => RetryCard(
             label: 'Alert settings could not load.',
             onRetry: () => ref.invalidate(alertSettingsProvider),
           ),
@@ -752,7 +399,7 @@ class _AlertsTab extends ConsumerWidget {
             padding: EdgeInsets.all(16),
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (_, _) => _RetryCard(
+          error: (_, _) => RetryCard(
             label: 'Alert history could not load.',
             onRetry: () => ref.invalidate(sentAlertsProvider),
           ),
@@ -768,7 +415,7 @@ class _AlertsTab extends ConsumerWidget {
                           leading: const Icon(Icons.directions_bus),
                           title: Text(alert.busLabel),
                           subtitle: Text(
-                            '${alert.routeName} · ${_clock(alert.sentAt)}',
+                            '${alert.routeName} · ${formatTimestamp(alert.sentAt)}',
                           ),
                         ),
                       )
@@ -797,6 +444,8 @@ class _ProfileTab extends ConsumerWidget {
             subtitle: Text(user?.email ?? 'Student account'),
           ),
         ),
+        // Install help on web only; renders nothing on native or once installed.
+        const PwaInstallCard(),
         if (profile != null)
           Card(
             key: const Key('profile-assignment'),
@@ -846,52 +495,3 @@ class _ProfileTab extends ConsumerWidget {
     );
   }
 }
-
-class _RetryCard extends StatelessWidget {
-  const _RetryCard({required this.label, required this.onRetry});
-  final String label;
-  final VoidCallback onRetry;
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    ),
-  );
-}
-
-Color _stateColor(BusState state) => switch (state) {
-  BusState.live => AppTheme.onTime,
-  BusState.stopped => AppTheme.delayed,
-  BusState.stale || BusState.offline => AppTheme.stale,
-};
-String _stateText(BusState state) => switch (state) {
-  BusState.live => 'Live',
-  BusState.stopped => 'Stopped',
-  BusState.stale => 'Last seen',
-  BusState.offline => 'Offline',
-};
-String _statusText(String status) => switch (status) {
-  'on_time' => 'On time',
-  'delayed' => 'Delayed',
-  'breakdown' => 'Breakdown',
-  _ => status,
-};
-String _etaText(BusEta eta, Duration cap) {
-  if (eta.passed) return 'Passed';
-  if (eta.capped) return '${cap.inMinutes}+ min';
-  final seconds = eta.etaSeconds;
-  return seconds == null
-      ? 'No ETA'
-      : seconds < 60
-      ? '<1 min'
-      : '${(seconds / 60).ceil()} min';
-}
-
-String _clock(DateTime time) =>
-    DateFormat.yMMMd().add_jm().format(time.toLocal());

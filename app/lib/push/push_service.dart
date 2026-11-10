@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api/api_client.dart';
 import '../core/firebase/firebase_setup.dart';
+import '../core/platform/app_platform.dart';
 
 /// A push message received while the app is in the foreground.
 class ForegroundPush {
@@ -27,10 +27,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
 /// Every method is a no-op when Firebase is not configured ([enabled] false),
 /// so the app runs before `flutterfire configure` and in tests.
 class PushService {
-  PushService({required this._api, required this.enabled});
+  PushService({
+    required this._api,
+    required this.enabled,
+    AppPlatform? platform,
+  }) : _platform = platform ?? currentAppPlatform();
 
   final ApiClient _api;
   final bool enabled;
+  final AppPlatform _platform;
   final _foreground = StreamController<ForegroundPush>.broadcast();
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _messageSub;
@@ -46,7 +51,8 @@ class PushService {
   /// notification permission (Android 13+), registers the token and follows
   /// token refreshes.
   Future<void> register() async {
-    if (!enabled) return;
+    // Web push is a later phase: registration is a no-op in the browser.
+    if (!enabled || !pushRegistrationSupported(_platform)) return;
     try {
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission();
@@ -80,7 +86,7 @@ class PushService {
     try {
       await _api.put(
         'me/push-token',
-        body: {'token': token, 'platform': Platform.isIOS ? 'ios' : 'android'},
+        body: {'token': token, 'platform': _platform.label},
       );
       _token = token;
     } catch (e) {

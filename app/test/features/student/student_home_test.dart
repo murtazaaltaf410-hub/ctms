@@ -101,7 +101,7 @@ void main() {
         'b9': bus('b9', 'Bus 9', 'r2', 'South Loop'),
       },
     );
-    await tester.tap(find.byTooltip('Show list'));
+    await tester.tap(find.text('List'));
     await tester.pumpAndSettle();
     expect(find.text('Bus 1'), findsOneWidget);
     expect(find.text('Bus 9'), findsNothing);

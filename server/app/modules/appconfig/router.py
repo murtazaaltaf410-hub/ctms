@@ -31,6 +31,7 @@ PUBLIC_KEYS = (
     "gps_accuracy_max_m",
     "student_move_report_m",
     "student_fix_max_accuracy_m",
+    "student_fix_max_age_s",
     "eta_display_cap_s",
     "timezone",
     "campus_lat",
@@ -50,6 +51,7 @@ class AppConfigOut(ApiModel):
     gps_accuracy_max_m: float
     student_move_report_m: float
     student_fix_max_accuracy_m: float
+    student_fix_max_age_s: float = 300  # additive: older clients ignore it
     eta_display_cap_s: float
     timezone: str
     campus_lat: float | None = None   # null until an admin pins the campus (arrival geofence off)

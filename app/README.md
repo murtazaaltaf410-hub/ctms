@@ -99,3 +99,11 @@ flutter analyze                               # 0 issues
 flutter test                                  # unit + widget tests
 dart format --set-exit-if-changed lib test
 ```
+
+## Web (staging/prod)
+
+`flutter build web --target lib/main_staging.dart` (or `main_prod.dart`) with the same `--dart-define`s as Android. Web-only values, never committed:
+
+- Maps: `web/index.html` contains the placeholder `__MAPS_JS_API_KEY__`. After the build, replace it in `build/web/index.html` with the HTTP-referrer-restricted browser key.
+- Firebase web app (optional, push stays off without it): `--dart-define=FIREBASE_WEB_API_KEY=... FIREBASE_WEB_APP_ID=... FIREBASE_WEB_PROJECT_ID=... FIREBASE_WEB_MESSAGING_SENDER_ID=... FIREBASE_WEB_AUTH_DOMAIN=... FIREBASE_WEB_STORAGE_BUCKET=...`.
+- Drivers cannot track trips on web; they see "Trip tracking requires the CTMS Android app".

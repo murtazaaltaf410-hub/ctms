@@ -269,3 +269,13 @@ P7 notes for P8:
 - `hashlib.scrypt(password: bytes, *, salt: bytes, n: int, r: int, p: int, maxmem=0, dklen=64) -> bytes`. Password-based key derivation. Use a random per-user salt (`secrets.token_bytes(16)`); store parameters, salt and digest together in `users.password_hash`. Needs OpenSSL 1.1+. Source: https://docs.python.org/3/library/hashlib.html (hashlib.scrypt).
 - `hmac.compare_digest(a, b) -> bool`. Constant-time comparison of the stored and recomputed digests. Source: https://docs.python.org/3/library/hmac.html (hmac.compare_digest).
 - Passwords and hashes are never logged or returned by any endpoint.
+
+### Web location + page lifecycle (W2) — `package:web` 1.1.x (already in pubspec.lock as a transitive dependency of Flutter; now direct)
+Not indexed in context7 at the time of writing; signatures below were read from the package source (web-1.1.2, `lib/src/dom/{html,dom,web_locks}.dart`).
+| API | Usage | Source |
+|---|---|---|
+| Visibility | `web.document.visibilityState == 'visible'`; `web.document.addEventListener('visibilitychange', fn.toJS)` | dom.dart `Document` |
+| Online | `web.window.navigator.onLine`; window events `online`, `offline`, `pageshow`, `pagehide` | html.dart `Navigator`, `Window` |
+| Secure context | `web.window.isSecureContext` (geolocation requires it) | html.dart `Window` |
+| Web Locks | `web.window.navigator.locks.request(name, web.LockOptions(ifAvailable: true), callback.toJS)`; callback gets `null` when not granted, else returns a promise held until release | web_locks.dart `LockManager`, `LockOptions` |
+| Student watcher | still `geolocator` (`getPositionStream`, `getCurrentPosition`); its web implementation wraps `navigator.geolocation.watchPosition` | geolocator row above |

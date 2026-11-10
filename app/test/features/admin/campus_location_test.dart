@@ -1,5 +1,5 @@
 import 'package:ctms/core/models/user.dart';
-import 'package:ctms/features/admin/admin_home_screen.dart';
+import 'package:ctms/features/admin/admin_legacy_tabs.dart';
 import 'package:ctms/features/admin/admin_models.dart';
 import 'package:ctms/features/admin/campus_location_screen.dart';
 import 'package:flutter/material.dart';

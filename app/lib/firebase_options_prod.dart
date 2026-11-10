@@ -12,7 +12,11 @@
 // ignore_for_file: type=lint
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'core/firebase/web_firebase_options.dart';
 
 class DefaultFirebaseOptions {
-  static FirebaseOptions? get currentPlatform => null;
+  static FirebaseOptions? get currentPlatform =>
+      kIsWeb ? webFirebaseOptionsFromDefines() : null;
 }

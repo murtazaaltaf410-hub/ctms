@@ -90,6 +90,11 @@ def _parse(raw: str) -> dict:
 async def live_ws(ws: WebSocket) -> None:
     app = ws.app
     store = app.state.settings_store
+    origin = ws.headers.get("origin")
+    # Browsers always send Origin; native clients (Android) send none and are allowed.
+    if origin is not None and origin.rstrip("/") not in app.state.config.allowed_origins:
+        await ws.close(code=app.state.config.ws_origin_reject_code)  # before accept: HTTP 403
+        return
     await ws.accept()
     try:
         raw = await asyncio.wait_for(ws.receive_text(), timeout=float(store.get_cached("ws_auth_timeout_s")))

@@ -3,7 +3,7 @@ import 'package:ctms/auth/auth_controller.dart';
 import 'package:ctms/auth/screens/sign_in_screen.dart';
 import 'package:ctms/core/env.dart';
 import 'package:ctms/core/models/models.dart';
-import 'package:ctms/features/admin/admin_home_screen.dart';
+import 'package:ctms/features/admin/shell/admin_shell.dart';
 import 'package:ctms/features/driver/driver_home_screen.dart';
 import 'package:ctms/features/student/registration_providers.dart';
 import 'package:ctms/features/student/registration_screen.dart';
@@ -100,7 +100,7 @@ void main() {
   for (final (role, screen) in [
     (UserRole.student, StudentHomeScreen),
     (UserRole.driver, DriverHomeScreen),
-    (UserRole.admin, AdminHomeScreen),
+    (UserRole.admin, AdminShell),
   ]) {
     testWidgets('$role lands on its home screen', (tester) async {
       await pumpApp(

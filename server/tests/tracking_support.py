@@ -201,6 +201,7 @@ class FakeWS:
 
     def __init__(self, app) -> None:
         self.app = app
+        self.headers: dict[str, str] = {}  # native client: no Origin header
         self.inbox: asyncio.Queue = asyncio.Queue()
         self.sent: list[dict] = []
         self.closed: tuple[int, str | None] | None = None

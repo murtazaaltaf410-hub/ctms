@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../realtime/live_providers.dart';
 import '../../../realtime/live_socket.dart';
+import '../responsive.dart';
 
 /// App-wide strip for the live connection (N1–N3). Hidden while connected or
 /// idle (signed out, driver).
 class ConnectionBanner extends ConsumerWidget {
-  const ConnectionBanner({super.key});
+  const ConnectionBanner({super.key, this.lastRefreshed});
+
+  /// When live data last refreshed successfully; shown while not connected.
+  final DateTime? lastRefreshed;
 
   static String? textFor(LiveConnectionState state) => switch (state) {
     LiveConnectionState.connecting => 'Connecting…',
@@ -21,11 +26,17 @@ class ConnectionBanner extends ConsumerWidget {
     final state =
         ref.watch(liveConnectionStateProvider).value ??
         LiveConnectionState.idle;
-    final text = textFor(state);
+    final base = textFor(state);
+    final refreshed = lastRefreshed;
+    final text = base == null
+        ? null
+        : refreshed == null
+        ? base
+        : '$base Last refreshed ${DateFormat.jm().format(refreshed.toLocal())}.';
     final scheme = Theme.of(context).colorScheme;
     final offline = state == LiveConnectionState.offline;
     return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
+      duration: motionDuration(context, const Duration(milliseconds: 200)),
       child: text == null
           ? const SizedBox(width: double.infinity)
           : Material(
@@ -50,12 +61,17 @@ class ConnectionBanner extends ConsumerWidget {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          text,
-                          style: TextStyle(
-                            color: offline
-                                ? scheme.onErrorContainer
-                                : scheme.onSecondaryContainer,
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            text,
+                            style: tabular(
+                              TextStyle(
+                                color: offline
+                                    ? scheme.onErrorContainer
+                                    : scheme.onSecondaryContainer,
+                              ),
+                            ),
                           ),
                         ),
                       ),

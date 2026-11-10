@@ -47,6 +47,7 @@ class ApiException implements Exception {
     this.message,
     this.statusCode,
     this.retryAfter,
+    this.body,
   });
 
   /// Maps any [DioException] (with or without a response) to an [ApiException].
@@ -71,6 +72,7 @@ class ApiException implements Exception {
       message: message,
       statusCode: status,
       retryAfter: _retryAfter(response.headers.value('retry-after')),
+      body: data is Map ? data : null,
     );
   }
 
@@ -82,6 +84,10 @@ class ApiException implements Exception {
 
   /// From the `Retry-After` header on 429 (seconds form).
   final Duration? retryAfter;
+
+  /// The decoded error body, for the few errors that carry extra data (a
+  /// POLYLINE_FAILED response includes the saved draft `route`).
+  final Map? body;
 
   static ApiErrorCode _fromStatus(int? status) => switch (status) {
     400 => ApiErrorCode.validationError,

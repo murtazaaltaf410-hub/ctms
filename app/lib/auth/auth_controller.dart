@@ -6,6 +6,7 @@ import '../core/api/api_client.dart';
 import '../core/api/api_exception.dart';
 import '../core/auth/token_store.dart';
 import '../core/models/models.dart';
+import '../core/pwa/pwa_cleanup.dart';
 import '../push/push_service.dart';
 import 'auth_repository.dart';
 import 'email_password_auth.dart';
@@ -195,6 +196,8 @@ class AuthController extends Notifier<AuthState> {
     await ref.read(googleIdTokenSourceProvider).signOut();
     await ref.read(emailPasswordAuthSourceProvider).signOut();
     await _tokens.clear();
+    // Defence in depth: the worker never stores authenticated data (0 on native).
+    await clearPwaCaches(ref);
   }
 }
 

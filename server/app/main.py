@@ -27,6 +27,7 @@ from app.logging_mw import install_request_logging
 from app.modules.auth.google import GoogleVerifier
 from app.ratelimit import RateLimiter
 from app.schemas import iso_utc, utcnow
+from app.security_headers import SecurityHeadersMiddleware
 from app.settings_store import SettingsStore
 
 log = logging.getLogger("ctms")
@@ -78,12 +79,14 @@ def create_app(config: Settings | None = None) -> FastAPI:
     init_state(app, config)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["Retry-After"],
+        allow_origins=config.allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["Retry-After", "X-Request-ID"],
+        max_age=config.cors_max_age_s,
     )
+    app.add_middleware(SecurityHeadersMiddleware, config=config)
     install_request_logging(app, config)  # Phase 9: JSON logs + redaction + request lines
     install_error_handlers(app)
     app.include_router(api_router)

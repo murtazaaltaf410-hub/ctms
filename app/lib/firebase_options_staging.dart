@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
+import 'core/firebase/web_firebase_options.dart';
+
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
 /// Example:
@@ -15,13 +17,9 @@ import 'package:flutter/foundation.dart'
 /// );
 /// ```
 class DefaultFirebaseOptions {
-  static FirebaseOptions get currentPlatform {
-    if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
-    }
+  // Web values come from --dart-define (null when absent: Firebase skipped).
+  static FirebaseOptions? get currentPlatform {
+    if (kIsWeb) return webFirebaseOptionsFromDefines();
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;

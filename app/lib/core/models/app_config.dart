@@ -15,6 +15,7 @@ class AppConfig {
     required this.studentFixMaxAccuracyM,
     required this.etaDisplayCap,
     required this.timezone,
+    this.studentFixMaxAge = const Duration(seconds: 300),
   });
 
   factory AppConfig.fromJson(Json json) => AppConfig(
@@ -30,6 +31,10 @@ class AppConfig {
     studentFixMaxAccuracyM: toDouble(json['student_fix_max_accuracy_m']),
     etaDisplayCap: _seconds(json['eta_display_cap_s']),
     timezone: json['timezone'] as String,
+    // Server value (additive field); 300 s only for older servers.
+    studentFixMaxAge: json['student_fix_max_age_s'] == null
+        ? const Duration(seconds: 300)
+        : _seconds(json['student_fix_max_age_s']),
   );
 
   /// Used until `/config` answers (or when the server predates it). Mirrors the
@@ -64,4 +69,7 @@ class AppConfig {
   final double studentFixMaxAccuracyM;
   final Duration etaDisplayCap;
   final String timezone;
+
+  /// Server `student_fix_max_age_s`: older student fixes are not used.
+  final Duration studentFixMaxAge;
 }
