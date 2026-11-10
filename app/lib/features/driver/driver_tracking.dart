@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sqflite/sqflite.dart';
@@ -135,6 +136,23 @@ class DriverTracker {
   DateTime? _retryAt;
   DateTime? _lastCapturedAt;
   bool _flushing = false;
+  DriverFix? _latestFix;
+  final _live = StreamController<DriverFix>.broadcast(sync: true);
+
+  /// Every GPS reading of the active trip, unthrottled. The upload path below
+  /// samples every 5-15 s; the driver's own map follows this stream instead so
+  /// the bus moves as the phone does.
+  Stream<DriverFix> get livePositions => _live.stream;
+
+  /// Most recent reading for a map that subscribes after tracking began.
+  DriverFix? get latestFix => _latestFix;
+
+  /// Publishes a reading to [livePositions] (tests drive it directly).
+  @visibleForTesting
+  void publish(DriverFix fix) {
+    _latestFix = fix;
+    if (!_live.isClosed) _live.add(fix);
+  }
 
   /// Called when an upload finds the trip gone (404): the server ended it.
   void Function(String tripId)? onTripGone;
@@ -159,6 +177,7 @@ class DriverTracker {
     }
     await _positions?.cancel();
     _positions = _locations.positions().listen((position) async {
+      publish(DriverFix.fromPosition(trip.id, position));
       final now = DateTime.now();
       final interval = position.speed > 0.5
           ? const Duration(seconds: 5)
@@ -215,6 +234,7 @@ class DriverTracker {
     await _positions?.cancel();
     _positions = null;
     _lastCapturedAt = null;
+    _latestFix = null;
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }

@@ -1,4 +1,9 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+
 import '../../core/api/api_client.dart';
+import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 
 class AnnouncementPage {
@@ -125,8 +130,6 @@ class StudentRepository {
 
   Future<void> cancelPickup(String id) => _api.delete('pickups/$id');
 
-  Future<void> deleteAccount() => _api.delete('me');
-
   /// Null before the first submit.
   Future<StudentRegistration?> registration() async {
     final json = await _api.get('me/registration');
@@ -147,4 +150,69 @@ class StudentRepository {
     );
     return json == null ? null : NearestRoute.fromJson(json as Json);
   }
+
+  /// `PUT /me/registration/photo`: the raw JPEG body (not JSON/multipart).
+  Future<StudentRegistration> uploadRegistrationPhoto(Uint8List jpeg) async {
+    try {
+      final response = await _api.dio.put<dynamic>(
+        'me/registration/photo',
+        data: jpeg,
+        options: Options(
+          contentType: 'image/jpeg',
+          headers: {Headers.contentLengthHeader: jpeg.length},
+        ),
+      );
+      return StudentRegistration.fromJson(response.data as Json);
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  /// Image bytes from an authenticated photo endpoint; null when there is no
+  /// photo (404). `GET /students/{id}/photo`, `GET /drivers/{id}/photo`.
+  Future<Uint8List?> _photo(String path) async {
+    try {
+      final response = await _api.dio.get<List<int>>(
+        path,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      return bytes == null || bytes.isEmpty ? null : Uint8List.fromList(bytes);
+    } on DioException catch (e) {
+      final error = ApiException.fromDio(e);
+      if (error.code == ApiErrorCode.notFound) return null;
+      throw error;
+    }
+  }
+
+  Future<Uint8List?> studentPhoto(String userId) =>
+      _photo('students/$userId/photo');
+
+  Future<Uint8List?> driverPhoto(String driverId) =>
+      _photo('drivers/$driverId/photo');
+
+  Future<BusCard> busCard() async =>
+      BusCard.fromJson(await _api.get('me/bus-card') as Json);
+
+  /// Null until a bus is assigned.
+  Future<MyBus?> myBus() async {
+    final json = await _api.get('me/bus');
+    return json == null ? null : MyBus.fromJson(json as Json);
+  }
+
+  /// ETAs to the waiting pickup pin, else to the route's first stop.
+  Future<MyEta> myEta() async =>
+      MyEta.fromJson(await _api.get('me/eta') as Json);
+
+  /// The latest request, or null when the student never asked.
+  Future<DeregistrationRequest?> deregistration() async {
+    final json = await _api.get('me/deregistration-request');
+    return json == null ? null : DeregistrationRequest.fromJson(json as Json);
+  }
+
+  Future<DeregistrationRequest> requestDeregistration(String? reason) async =>
+      DeregistrationRequest.fromJson(
+        await _api.post('me/deregistration-request', body: {'reason': ?reason})
+            as Json,
+      );
 }

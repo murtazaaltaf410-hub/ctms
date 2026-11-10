@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,10 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
+import '../../core/ui/theme.dart';
 import '../../core/ui/widgets/state_views.dart';
 import '../../core/util/phone.dart';
+import 'photo/passport_photo.dart';
+import 'photo/photo_framing_screen.dart';
 import 'registration_providers.dart';
 import 'student_providers.dart';
+import 'widgets/photo_views.dart';
 
 /// The single `/registration` page: picks the form, the waiting page or an
 /// error view from the student's registration, so the router only needs one path.
@@ -41,10 +46,13 @@ class _RegistrationFlowScreenState
     }
     final current = registration.value;
     return switch (current?.status) {
-      RegistrationStatus.pending when !_editing => PendingScreen(
-        registration: current!,
-        onEdit: () => setState(() => _editing = true),
-      ),
+      // A pending registration that still lacks something (the photo) cannot
+      // be approved: keep the student on the form until it is complete.
+      RegistrationStatus.pending when !_editing && current!.complete =>
+        PendingScreen(
+          registration: current,
+          onEdit: () => setState(() => _editing = true),
+        ),
       RegistrationStatus.approved => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       ),
@@ -81,6 +89,7 @@ class PendingScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final userId = ref.watch(authControllerProvider).user?.id;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Registration'),
@@ -115,10 +124,21 @@ class PendingScreen extends ConsumerWidget {
             Card(
               child: Column(
                 children: [
+                  if (userId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: StudentPhotoImage(
+                        key: const Key('pending-photo'),
+                        userId: userId,
+                        width: 84,
+                      ),
+                    ),
                   _detail('Full name', registration.fullName),
                   _detail('Phone number', registration.phone),
                   _detail('Department', registration.department),
-                  _detail('Route', registration.routeName),
+                  _detail('Enrollment number', registration.enrollmentNo),
+                  _detail('Home address', registration.homeAddress),
+                  _detail('Route (locked)', registration.routeName),
                   _detail('Bus number', registration.requestedBusLabel),
                   _detail(
                     'Registered with campus transport',
@@ -205,8 +225,12 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   late final TextEditingController _name;
   late final TextEditingController _phone;
   late final TextEditingController _department;
+  late final TextEditingController _enrollment;
+  late final TextEditingController _address;
   late final TextEditingController _bus;
   String? _routeId;
+  Uint8List? _photo;
+  String? _photoError;
   bool? _claimsRegistered;
   bool _attempted = false;
   bool _busy = false;
@@ -222,6 +246,8 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
     _name = TextEditingController(text: initial?.fullName ?? user?.name ?? '');
     _phone = TextEditingController(text: initial?.phone ?? '');
     _department = TextEditingController(text: initial?.department ?? '');
+    _enrollment = TextEditingController(text: initial?.enrollmentNo ?? '');
+    _address = TextEditingController(text: initial?.homeAddress ?? '');
     _bus = TextEditingController(text: initial?.requestedBusLabel ?? '');
     _routeId = initial?.routeId;
     _claimsRegistered = initial?.claimsRegistered;
@@ -234,6 +260,8 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
     _name.dispose();
     _phone.dispose();
     _department.dispose();
+    _enrollment.dispose();
+    _address.dispose();
     _bus.dispose();
     super.dispose();
   }
@@ -288,7 +316,9 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   Future<void> _submit() async {
     setState(() => _attempted = true);
     final valid = _form.currentState!.validate();
-    if (!valid || _claimsRegistered == null || _routeId == null) return;
+    if (!valid || _claimsRegistered == null || _routeId == null || !_hasPhoto) {
+      return;
+    }
     final phone = normalisePhone(_phone.text)!;
     final bus = _bus.text.trim();
     setState(() {
@@ -303,12 +333,23 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
               fullName: _name.text.trim(),
               phone: phone,
               department: _department.text.trim(),
+              enrollmentNo: _enrollment.text.trim(),
+              homeAddress: _address.text.trim(),
               routeId: _routeId!,
               claimsRegistered: _claimsRegistered!,
               requestedBusLabel: bus.isEmpty ? null : bus,
             ),
+            photo: _photo,
           );
       widget.onSubmitted?.call();
+    } on PhotoUploadFailed catch (e) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Your details were saved, but the photo could not be sent. '
+              '${_describe(e.cause)}\nTap Submit to try again.',
+        );
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = _describe(e));
     } finally {
@@ -324,6 +365,31 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   String? _required(String? value, String what) =>
       (value ?? '').trim().isEmpty ? 'Enter $what' : null;
 
+  /// A new photo was taken, or the server already holds one.
+  bool get _hasPhoto => _photo != null || widget.initial?.hasPhoto == true;
+
+  Future<void> _pickPhoto(PhotoSource source) async {
+    setState(() => _photoError = null);
+    try {
+      final picked = await ref.read(photoPickerProvider).pick(source);
+      if (picked == null || !mounted) return;
+      final jpeg = await Navigator.push<Uint8List>(
+        context,
+        MaterialPageRoute(builder: (_) => PhotoFramingScreen(photo: picked)),
+      );
+      if (jpeg != null && mounted) setState(() => _photo = jpeg);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _photoError = source == PhotoSource.camera
+              ? 'The camera could not be opened. Check the camera permission '
+                    'or choose a picture from the gallery.'
+              : 'The picture could not be opened.',
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -331,6 +397,13 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
     final rejected = widget.initial?.status == RegistrationStatus.rejected;
     final note = rejected ? widget.initial?.adminNote : null;
     final claims = _claimsRegistered;
+    final incomplete =
+        widget.initial?.status == RegistrationStatus.pending &&
+        widget.initial?.complete == false;
+
+    // The route is chosen once. After the first submit a pending (or approved)
+    // student cannot change it; only a rejected one may fix it.
+    final routeLocked = widget.initial?.status == RegistrationStatus.pending;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Register for the bus'),
@@ -364,6 +437,19 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   ),
                 ),
               ),
+            if (incomplete)
+              Card(
+                key: const Key('incomplete-note'),
+                color: theme.colorScheme.tertiaryContainer,
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Your registration is not complete yet. Add what is '
+                    'missing below so the transport office can approve it.',
+                  ),
+                ),
+              ),
+            if (incomplete) const SizedBox(height: 12),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -402,42 +488,88 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
               validator: (v) => _required(v, 'your department'),
             ),
             const SizedBox(height: 12),
-            routes.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (_, _) => Card(
-                child: ListTile(
-                  title: const Text('Routes could not load.'),
-                  trailing: TextButton(
-                    onPressed: () => ref.invalidate(studentRoutesProvider),
-                    child: const Text('Retry'),
+            TextFormField(
+              key: const Key('reg-enrollment'),
+              controller: _enrollment,
+              maxLength: 40,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Enrollment number',
+                counterText: '',
+              ),
+              validator: (v) => _required(v, 'your enrollment number'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const Key('reg-address'),
+              controller: _address,
+              maxLength: 500,
+              minLines: 2,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              keyboardType: TextInputType.multiline,
+              decoration: const InputDecoration(
+                labelText: 'Home address',
+                helperText: 'Where the bus should pick you up from',
+                alignLabelWithHint: true,
+              ),
+              validator: (v) => _required(v, 'your home address'),
+            ),
+            const SizedBox(height: 12),
+            _PhotoField(
+              photo: _photo,
+              hasStoredPhoto: widget.initial?.hasPhoto == true,
+              userId: ref.watch(authControllerProvider).user?.id,
+              showError: _attempted && !_hasPhoto,
+              pickError: _photoError,
+              onPick: _busy ? null : _pickPhoto,
+            ),
+            const SizedBox(height: 12),
+            if (routeLocked)
+              _LockedRoute(name: widget.initial?.routeName)
+            else
+              routes.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, _) => Card(
+                  child: ListTile(
+                    title: const Text('Routes could not load.'),
+                    trailing: TextButton(
+                      onPressed: () => ref.invalidate(studentRoutesProvider),
+                      child: const Text('Retry'),
+                    ),
                   ),
                 ),
+                data: (items) => DropdownButtonFormField<String>(
+                  key: _routeField,
+                  initialValue: items.any((r) => r.id == _routeId)
+                      ? _routeId
+                      : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Route'),
+                  items: [
+                    for (final route in items)
+                      DropdownMenuItem(
+                        value: route.id,
+                        child: Text(route.name),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _routeId = value),
+                  validator: (v) => v == null ? 'Choose your route' : null,
+                ),
               ),
-              data: (items) => DropdownButtonFormField<String>(
-                key: _routeField,
-                initialValue: items.any((r) => r.id == _routeId)
-                    ? _routeId
-                    : null,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Route'),
-                items: [
-                  for (final route in items)
-                    DropdownMenuItem(value: route.id, child: Text(route.name)),
-                ],
-                onChanged: (value) => setState(() => _routeId = value),
-                validator: (v) => v == null ? 'Choose your route' : null,
+            if (!routeLocked)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const Key('reg-use-location'),
+                  onPressed: _locating
+                      ? null
+                      : () => _detectRoute(request: true),
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('Use my location'),
+                ),
               ),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                key: const Key('reg-use-location'),
-                onPressed: _locating ? null : () => _detectRoute(request: true),
-                icon: const Icon(Icons.my_location),
-                label: const Text('Use my location'),
-              ),
-            ),
-            if (_locationNote != null)
+            if (!routeLocked && _locationNote != null)
               Text(_locationNote!, style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             TextFormField(
@@ -518,6 +650,163 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The chosen route after the first submit: read-only, with the reason.
+class _LockedRoute extends StatelessWidget {
+  const _LockedRoute({required this.name});
+
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ctms;
+    return Container(
+      key: const Key('reg-route-locked'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_outline, size: 20, color: c.muted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name ?? 'Your route',
+                  style: CtmsText.ui(context, 16, FontWeight.w500),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Route locked after you registered. Ask the transport '
+                  'office if it must change.',
+                  style: CtmsText.ui(context, 13).copyWith(color: c.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Passport photo: preview (stored or just taken) and the camera/gallery
+/// buttons. The framing itself happens on [PhotoFramingScreen].
+class _PhotoField extends StatelessWidget {
+  const _PhotoField({
+    required this.photo,
+    required this.hasStoredPhoto,
+    required this.userId,
+    required this.showError,
+    required this.pickError,
+    required this.onPick,
+  });
+
+  final Uint8List? photo;
+  final bool hasStoredPhoto;
+  final String? userId;
+  final bool showError;
+  final String? pickError;
+  final void Function(PhotoSource source)? onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ctms;
+    final has = photo != null || hasStoredPhoto;
+    final error =
+        pickError ?? (showError ? 'Add your passport-style photo' : null);
+    return Container(
+      key: const Key('reg-photo'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: showError ? Theme.of(context).colorScheme.error : c.border,
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Passport-style photo',
+            style: CtmsText.ui(context, 16, FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Face straight to the camera, plain light background. It is '
+            'printed on your bus card.',
+            style: CtmsText.ui(context, 13).copyWith(color: c.muted),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (photo != null)
+                PhotoBox(
+                  key: const Key('reg-photo-preview'),
+                  bytes: photo,
+                  width: 96,
+                )
+              else if (hasStoredPhoto && userId != null)
+                StudentPhotoImage(
+                  key: const Key('reg-photo-preview'),
+                  userId: userId!,
+                  width: 96,
+                )
+              else
+                const PhotoBox(
+                  key: Key('reg-photo-empty'),
+                  bytes: null,
+                  width: 96,
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      key: const Key('reg-photo-camera'),
+                      onPressed: onPick == null
+                          ? null
+                          : () => onPick!(PhotoSource.camera),
+                      icon: const Icon(Icons.photo_camera_outlined),
+                      label: Text(has ? 'Retake photo' : 'Take photo'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      key: const Key('reg-photo-gallery'),
+                      onPressed: onPick == null
+                          ? null
+                          : () => onPick!(PhotoSource.gallery),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('From gallery'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              error,
+              key: const Key('reg-photo-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
       ),
     );
   }

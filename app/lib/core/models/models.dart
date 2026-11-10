@@ -7,5 +7,6 @@ export 'live_bus.dart';
 export 'pickup.dart';
 export 'registration.dart';
 export 'route.dart';
+export 'student_identity.dart';
 export 'trip.dart';
 export 'user.dart';

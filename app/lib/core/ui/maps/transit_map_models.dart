@@ -10,6 +10,9 @@ class MapCoordinate {
   final double longitude;
 }
 
+/// Semantic colour of a bus marker. Always backed by text elsewhere on screen.
+enum TransitMapTone { live, delayed, breakdown, stale }
+
 class TransitMapBus {
   const TransitMapBus({
     required this.id,
@@ -17,6 +20,7 @@ class TransitMapBus {
     required this.position,
     this.heading,
     this.detail,
+    this.tone = TransitMapTone.live,
   });
 
   final String id;
@@ -24,6 +28,38 @@ class TransitMapBus {
   final MapCoordinate position;
   final double? heading;
   final String? detail;
+  final TransitMapTone tone;
+
+  /// Marker rotation in degrees; 0 (north) when the heading is unknown.
+  double get rotation => heading == null ? 0 : heading! % 360;
+}
+
+/// Logical (device-independent) size of the bus marker and how big its bitmap
+/// must be rendered so it stays sharp without being drawn oversize.
+abstract final class BusMarkerSpec {
+  static const logicalSize = 40.0;
+
+  /// Pixel edge length of the bitmap for a device pixel ratio.
+  static int bitmapPixels(double devicePixelRatio) =>
+      (logicalSize * (devicePixelRatio <= 0 ? 1 : devicePixelRatio)).round();
+}
+
+/// How a stop is drawn: terminus dots for the first and last stop, numbered
+/// dots between them, and a plain dot for stops outside a route (waiting
+/// students).
+enum TransitStopDot { origin, destination, numbered, plain }
+
+/// Dot and number for the stop at [index] of [total] ordered route stops. With
+/// the student view the server only sends the first and last stop, so there
+/// are never mid-route numbers to get wrong.
+({TransitStopDot dot, int number}) stopDotFor(int index, int total) {
+  if (total <= 1 || index == 0) {
+    return (dot: TransitStopDot.origin, number: 1);
+  }
+  if (index == total - 1) {
+    return (dot: TransitStopDot.destination, number: total);
+  }
+  return (dot: TransitStopDot.numbered, number: index + 1);
 }
 
 class TransitMapStop {
@@ -47,7 +83,7 @@ class TransitMapRoute {
     required this.name,
     required this.points,
     this.stops = const [],
-    this.color = Colors.blue,
+    this.color = const Color(0xFF5C7D1F),
   });
 
   final String id;
@@ -68,6 +104,16 @@ class TransitMapData {
   final List<TransitMapBus> buses;
   final List<TransitMapRoute> routes;
   final List<TransitMapStop> stops;
+
+  /// Changes only when the shape of the map changes (routes, stops, which buses
+  /// exist), never when a bus merely moves. Used to refit the camera without
+  /// fighting the user on every live position.
+  String get fitSignature => [
+    for (final route in routes)
+      '${route.id}:${route.points.length}:${route.stops.length}',
+    's${stops.length}',
+    for (final bus in buses) bus.id,
+  ].join('|');
 
   List<MapCoordinate> get cameraPoints => [
     for (final bus in buses) bus.position,

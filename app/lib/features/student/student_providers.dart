@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
@@ -94,3 +96,51 @@ final myPickupProvider = FutureProvider.autoDispose<Pickup?>(
 final sentAlertsProvider = FutureProvider<List<SentAlert>>(
   (ref) => ref.watch(studentRepositoryProvider).sentAlerts(),
 );
+
+/// The student's own digital bus card (approved students only).
+final busCardProvider = FutureProvider.autoDispose<BusCard>(
+  (ref) => ref.watch(studentRepositoryProvider).busCard(),
+);
+
+/// Assigned bus and its driver, or null before a bus is assigned.
+final myBusProvider = FutureProvider.autoDispose<MyBus?>(
+  (ref) => ref.watch(studentRepositoryProvider).myBus(),
+);
+
+/// ETAs to the pickup pin or the first stop (`GET /me/eta`).
+final myEtaProvider = FutureProvider.autoDispose<MyEta>(
+  (ref) => ref.watch(studentRepositoryProvider).myEta(),
+);
+
+/// Own passport photo; null when none is stored.
+final studentPhotoProvider = FutureProvider.autoDispose
+    .family<Uint8List?, String>(
+      (ref, userId) =>
+          ref.watch(studentRepositoryProvider).studentPhoto(userId),
+    );
+
+final driverPhotoProvider = FutureProvider.autoDispose
+    .family<Uint8List?, String>(
+      (ref, driverId) =>
+          ref.watch(studentRepositoryProvider).driverPhoto(driverId),
+    );
+
+/// The latest deregistration request (null = never asked).
+class DeregistrationController extends AsyncNotifier<DeregistrationRequest?> {
+  @override
+  Future<DeregistrationRequest?> build() =>
+      ref.read(studentRepositoryProvider).deregistration();
+
+  /// Throws [ApiException] on failure and leaves the state alone.
+  Future<void> request(String? reason) async {
+    final saved = await ref
+        .read(studentRepositoryProvider)
+        .requestDeregistration(reason);
+    state = AsyncData(saved);
+  }
+}
+
+final deregistrationProvider =
+    AsyncNotifierProvider<DeregistrationController, DeregistrationRequest?>(
+      DeregistrationController.new,
+    );

@@ -75,6 +75,8 @@ void main() {
       fullName: 'A',
       phone: '+919876543210',
       department: 'D',
+      enrollmentNo: 'E1',
+      homeAddress: 'Hazratbal',
       routeId: 'r1',
       claimsRegistered: false,
     );
@@ -82,6 +84,8 @@ void main() {
       'full_name': 'A',
       'phone': '+919876543210',
       'department': 'D',
+      'enrollment_no': 'E1',
+      'home_address': 'Hazratbal',
       'route_id': 'r1',
       'claims_registered': false,
     });
@@ -89,6 +93,8 @@ void main() {
       fullName: 'A',
       phone: '+919876543210',
       department: 'D',
+      enrollmentNo: 'E1',
+      homeAddress: 'Hazratbal',
       routeId: 'r1',
       claimsRegistered: true,
       requestedBusLabel: 'Bus 2',
@@ -229,5 +235,25 @@ void main() {
       expect(normalisePhone('+0123456789'), isNull);
       expect(normalisePhone('9876543210123456789'), isNull);
     });
+  });
+
+  test('V1.3 registration fields parse; old payloads count as complete', () {
+    final r = StudentRegistration.fromJson({
+      'status': 'pending',
+      'full_name': 'A',
+      'enrollment_no': 'E1',
+      'home_address': 'Hazratbal',
+      'has_photo': false,
+      'complete': false,
+    });
+    expect(r.enrollmentNo, 'E1');
+    expect(r.homeAddress, 'Hazratbal');
+    expect(r.hasPhoto, isFalse);
+    expect(r.complete, isFalse);
+    final old = StudentRegistration.fromJson({
+      'status': 'pending',
+      'full_name': 'A',
+    });
+    expect(old.complete, isTrue);
   });
 }

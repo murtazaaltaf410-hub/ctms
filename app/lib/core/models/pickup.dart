@@ -14,6 +14,8 @@ class Pickup {
     required this.status,
     required this.createdAt,
     required this.expiresAt,
+    this.decision = PickupDecision.auto,
+    this.decidedAt,
   });
 
   factory Pickup.fromJson(Json json) => Pickup(
@@ -27,6 +29,8 @@ class Pickup {
     status: json['status'] as String,
     createdAt: parseTime(json['created_at']),
     expiresAt: parseTime(json['expires_at']),
+    decision: PickupDecision.parse(json['decision']),
+    decidedAt: parseTimeOrNull(json['decided_at']),
   );
 
   final String id;
@@ -41,6 +45,26 @@ class Pickup {
   final String status;
   final DateTime createdAt;
   final DateTime expiresAt;
+
+  /// Whether the driver has to say yes (a student of another bus).
+  final PickupDecision decision;
+  final DateTime? decidedAt;
+}
+
+/// `decision` of a pickup pin (V1.3): students of the trip's bus are `auto`;
+/// others wait as `needsDecision` until the driver accepts or rejects.
+enum PickupDecision {
+  auto,
+  needsDecision,
+  accepted,
+  rejected;
+
+  static PickupDecision parse(Object? value) => switch (value) {
+    'needs_decision' => needsDecision,
+    'accepted' => accepted,
+    'rejected' => rejected,
+    _ => auto,
+  };
 }
 
 /// A student waiting on the driver's route and leg (`GET /trips/{id}/pickups`).

@@ -1,4 +1,6 @@
 import 'package:ctms/core/models/models.dart';
+import 'package:ctms/core/ui/maps/transit_map.dart';
+import 'package:ctms/core/ui/maps/transit_map_models.dart';
 import 'package:ctms/core/ui/theme.dart';
 import 'package:ctms/features/student/registration_providers.dart';
 import 'package:ctms/features/student/student_home_screen.dart';
@@ -149,5 +151,41 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('Not assigned yet'), findsOneWidget);
+  });
+
+  group('live map', () {
+    tearDown(() => TransitMap.debugSurfaceBuilder = null);
+
+    testWidgets('fullscreen keeps the pickup action and closes', (
+      tester,
+    ) async {
+      TransitMap.debugSurfaceBuilder = (context, spec) =>
+          const ColoredBox(color: Colors.green);
+      await pump(
+        tester,
+        registration: approved,
+        buses: {'b1': bus('b1', 'Bus 1', 'r1', 'North Loop')},
+      );
+      expect(find.byKey(const Key('student-map')), findsOneWidget);
+      expect(find.text('Request a pickup'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('transit-map-expand')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('transit-map-close')), findsOneWidget);
+      expect(find.text('Request a pickup'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('transit-map-close')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('transit-map-close')), findsNothing);
+    });
+  });
+
+  test('studentMapData colours buses by state and uses the olive route', () {
+    final live = bus('b1', 'Bus 1', 'r1', 'North Loop');
+    final data = studentMapData(
+      colors: CtmsColors.light,
+      buses: [live],
+      route: null,
+    );
+    expect(data.buses.single.tone, TransitMapTone.live);
+    expect(data.routes, isEmpty);
   });
 }

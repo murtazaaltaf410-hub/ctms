@@ -13,6 +13,7 @@ import '../../core/util/clock_format.dart';
 import '../../privacy/consent.dart';
 import '../../push/push_service.dart';
 import 'driver_controller.dart';
+import 'driver_map.dart';
 import 'driver_tracking.dart';
 import 'driver_widgets.dart';
 import 'roster_card.dart';
@@ -229,6 +230,7 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
         ),
         const SizedBox(height: 20),
         RouteStrip(
+          map: DriverLiveMap(trip: trip),
           caption: trip.movedAt == null
               ? 'Not moving yet'
               : 'Moving since ${formatClock(trip.movedAt!)}',

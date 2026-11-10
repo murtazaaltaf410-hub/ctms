@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 import '../../privacy/app_config.dart';
+import 'driver_fix.dart';
 import 'driver_repository.dart';
 import 'driver_tracking.dart';
 
@@ -240,6 +241,31 @@ class DriverController extends Notifier<DriverState> {
     }
   }
 }
+
+/// The route the active trip runs on, for the driver's map.
+final driverRouteProvider = FutureProvider.autoDispose
+    .family<RouteDetail, String>(
+      (ref, routeId) => ref.watch(driverRepositoryProvider).route(routeId),
+    );
+
+/// The bus's own position, updated on every GPS reading while a trip is
+/// active (not just on the 5-15 s uploads). Null until the first reading.
+class DriverPositionNotifier extends Notifier<DriverFix?> {
+  @override
+  DriverFix? build() {
+    final tracker = ref.watch(driverTrackerProvider);
+    final sub = tracker.livePositions.listen((fix) {
+      state = fix;
+    });
+    ref.onDispose(sub.cancel);
+    return tracker.latestFix;
+  }
+}
+
+final driverPositionProvider =
+    NotifierProvider<DriverPositionNotifier, DriverFix?>(
+      DriverPositionNotifier.new,
+    );
 
 /// Students with a waiting pickup pin on the trip's route and leg.
 final waitingStudentsProvider = FutureProvider.autoDispose

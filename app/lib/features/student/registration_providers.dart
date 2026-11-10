@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 import 'student_providers.dart';
 
@@ -30,13 +32,19 @@ class RegistrationController extends AsyncNotifier<StudentRegistration?> {
     return ref.read(studentRepositoryProvider).registration();
   }
 
-  /// `PUT /me/registration`; the result becomes the new state. Throws
-  /// [ApiException] on failure and leaves the state alone.
-  Future<void> submit(RegistrationInput input) async {
-    final saved = await ref
-        .read(studentRepositoryProvider)
-        .submitRegistration(input);
-    state = AsyncData(saved);
+  /// `PUT /me/registration`, then `PUT /me/registration/photo` when a new
+  /// [photo] was taken (the server refuses a photo before the registration).
+  /// Each result becomes the new state. Throws [ApiException] when the details
+  /// fail and [PhotoUploadFailed] when they were saved but the photo was not.
+  Future<void> submit(RegistrationInput input, {Uint8List? photo}) async {
+    final repository = ref.read(studentRepositoryProvider);
+    state = AsyncData(await repository.submitRegistration(input));
+    if (photo == null) return;
+    try {
+      state = AsyncData(await repository.uploadRegistrationPhoto(photo));
+    } on ApiException catch (e) {
+      throw PhotoUploadFailed(e);
+    }
   }
 
   /// Reload, e.g. the pull-to-refresh on the waiting screen.
@@ -44,6 +52,13 @@ class RegistrationController extends AsyncNotifier<StudentRegistration?> {
     ref.invalidateSelf();
     await future;
   }
+}
+
+/// The registration details were saved but the photo upload failed.
+class PhotoUploadFailed implements Exception {
+  const PhotoUploadFailed(this.cause);
+
+  final ApiException cause;
 }
 
 final registrationProvider =

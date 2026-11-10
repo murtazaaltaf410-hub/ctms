@@ -160,8 +160,11 @@ class RouteStrip extends StatelessWidget {
     required this.caption,
     required this.status,
     required this.statusLabel,
+    this.map,
   });
 
+  /// The live map card; the decorative wave stands in until there is one.
+  final Widget? map;
   final String caption;
   final TripStatus status;
   final String statusLabel;
@@ -176,11 +179,12 @@ class RouteStrip extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            height: 80,
-            width: double.infinity,
-            child: CustomPaint(painter: _WavePainter(c.olive)),
-          ),
+          map ??
+              SizedBox(
+                height: 80,
+                width: double.infinity,
+                child: CustomPaint(painter: _WavePainter(c.olive)),
+              ),
           const SizedBox(height: 8),
           Row(
             children: [

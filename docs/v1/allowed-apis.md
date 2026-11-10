@@ -188,6 +188,7 @@ context7 has no index for the Routes API. The searches tried were "Google Maps R
 | Size | GoogleMap must be in a bounded-size parent | index.html |
 | Android key | `<meta-data android:name="com.google.android.geo.API_KEY" android:value="${MAPS_API_KEY}"/>` via gradle manifestPlaceholders per flavor. **UNCONFIRMED** in this ctx7 session (standard README setup) | — |
 | Admin route editor | `GoogleMap(onTap: (LatLng p) {...}, mapType: MapType.hybrid \| MapType.normal, myLocationButtonEnabled: false)`; `Marker(draggable: true, onDragEnd: (LatLng p) {...}, infoWindow: InfoWindow(title:, snippet:, onTap:))`; `Polyline(patterns: [PatternItem.dash(16), PatternItem.gap(10)])` | GoogleMap-class.html, Marker-class.html |
+| Transit map (live, styled) | `BitmapDescriptor.bytes(png, width: dp, height: dp)` (PNG rendered at devicePixelRatio, declared at logical size); `Marker(anchor: Offset(.5,.5), flat: true, rotation:, zIndexInt:, visible:)`; `Polyline(startCap: Cap.roundCap, endCap: Cap.roundCap, jointType: JointType.round, zIndex:)`; `GoogleMap(style: json, padding: EdgeInsets, onCameraMoveStarted:, mapToolbarEnabled:, zoomControlsEnabled:)`; `CameraUpdate.newLatLng / newLatLngZoom / newLatLngBounds` | BitmapDescriptor-class.html, Marker-class.html, Polyline-class.html, GoogleMap-class.html |
 | Marker animation | No built-in tween. Interpolate the `LatLng` in an `AnimationController` and rebuild the marker set | (design note) |
 
 ### geolocator — ctx7: `/baseflow/flutter-geolocator`
@@ -275,3 +276,11 @@ P7 notes for P8:
 - `hashlib.scrypt(password: bytes, *, salt: bytes, n: int, r: int, p: int, maxmem=0, dklen=64) -> bytes`. Password-based key derivation. Use a random per-user salt (`secrets.token_bytes(16)`); store parameters, salt and digest together in `users.password_hash`. Needs OpenSSL 1.1+. Source: https://docs.python.org/3/library/hashlib.html (hashlib.scrypt).
 - `hmac.compare_digest(a, b) -> bool`. Constant-time comparison of the stored and recomputed digests. Source: https://docs.python.org/3/library/hmac.html (hmac.compare_digest).
 - Passwords and hashes are never logged or returned by any endpoint.
+
+## V1.3 student app (identity photo, bus card, call driver)
+| Package / API | Usage in `app/` | Source |
+|---|---|---|
+| **image_picker** (new) | `final x = await ImagePicker().pickImage(source: ImageSource.camera, preferredCameraDevice: CameraDevice.front)` then `await x?.readAsBytes()`. The system camera UI cannot draw an overlay, so the oval guide and 3:4 crop happen in our own framing screen after capture. No camera permission is declared (the plugin uses the camera intent). Gallery uses `ImageSource.gallery` | ctx7 `/websites/pub_dev_packages_image_picker` (pickImage / getImageFromSource) |
+| **image** (new, pure Dart) | `img.decodeImage(bytes)`, `img.bakeOrientation(i)`, `img.copyCrop(i, x:, y:, width:, height:)`, `img.copyResize(i, height: 600, interpolation: img.Interpolation.average)`, `img.encodeJpg(i, quality: q)`; run in `compute` (isolate). Quality is lowered until the JPEG is <= 200 KB | ctx7 `/brendan-duncan/image` (doc/transform.md copyCrop/copyResize/bakeOrientation; doc/formats.md encodeJpg) |
+| **qr_flutter** (new) | `QrImageView(data: qrPayload, version: QrVersions.auto, errorCorrectionLevel: QrErrorCorrectLevel.M, size: ..., backgroundColor: Colors.white, eyeStyle: const QrEyeStyle(color: ...), dataModuleStyle: const QrDataModuleStyle(color: ...))`. `foregroundColor` is deprecated: set colours on `eyeStyle` / `dataModuleStyle` | ctx7 `/theyakka/qr.flutter` (QrImageView constructor) |
+| **url_launcher** (new) | `launchUrl(Uri(scheme: 'tel', path: phone))` for the Call driver button; Android 11+ needs the `tel` `<queries>` intent in `AndroidManifest.xml` (added) | ctx7 `/websites/pub_dev_packages_url_launcher` (Android manifest queries; `_makePhoneCall` example) |

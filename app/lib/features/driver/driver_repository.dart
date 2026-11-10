@@ -17,6 +17,10 @@ class DriverRepository {
     return parseList(json['items'], RouteSummary.fromJson);
   }
 
+  /// Route line and every stop (drivers get the full stop list).
+  Future<RouteDetail> route(String routeId) async =>
+      RouteDetail.fromJson(await _api.get('routes/$routeId') as Json);
+
   Future<Trip> startTrip(String? routeId, TripDirection direction) async {
     final json = await _api.post(
       'trips/start',

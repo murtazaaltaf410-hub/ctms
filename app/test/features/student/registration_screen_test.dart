@@ -5,6 +5,7 @@ import 'package:ctms/core/models/user.dart';
 import 'package:ctms/features/student/registration_providers.dart';
 import 'package:ctms/features/student/registration_screen.dart';
 import 'package:ctms/features/student/student_providers.dart';
+import 'package:ctms/core/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,7 +74,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: h.container,
-        child: MaterialApp(home: home),
+        child: MaterialApp(theme: AppTheme.light(), home: home),
       ),
     );
     await tester.pumpAndSettle();
@@ -84,11 +85,15 @@ void main() {
     String name = 'Aisha Khan',
     String phone = '98765 43210',
     String department = 'Physics',
+    String enrollment = 'NC-2026-001',
+    String address = 'Sopore, Baramulla',
     String bus = '',
   }) async {
     await tester.enterText(find.byKey(const Key('reg-name')), name);
     await tester.enterText(find.byKey(const Key('reg-phone')), phone);
     await tester.enterText(find.byKey(const Key('reg-department')), department);
+    await tester.enterText(find.byKey(const Key('reg-enrollment')), enrollment);
+    await tester.enterText(find.byKey(const Key('reg-address')), address);
     await tester.enterText(find.byKey(const Key('reg-bus')), bus);
   }
 
@@ -105,9 +110,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  StudentRegistration draftWithPhoto({bool claims = true}) =>
+      StudentRegistration.fromJson(
+        registrationJson(status: 'rejected', claims: claims),
+  );
+
   group('registration form', () {
     testWidgets('shows exactly the required fields', (tester) async {
-      await pump(tester, const RegistrationScreen());
+      await pump(tester, RegistrationScreen(initial: draftWithPhoto()));
       expect(find.text('Full name'), findsOneWidget);
       expect(find.text('Phone number'), findsOneWidget);
       expect(find.text('Department'), findsOneWidget);
@@ -138,7 +148,10 @@ void main() {
     });
 
     testWidgets('yes needs a bus number; payload carries it', (tester) async {
-      await pump(tester, const RegistrationScreen());
+      await pump(
+        tester,
+        RegistrationScreen(initial: draftWithPhoto(claims: false)),
+      );
       await fill(tester);
       await chooseRoute(tester, 'North Loop');
       await tester.tap(find.text('Yes'));
@@ -160,6 +173,8 @@ void main() {
         'full_name': 'Aisha Khan',
         'phone': '+919876543210',
         'department': 'Physics',
+        'enrollment_no': 'NC-2026-001',
+        'home_address': 'Sopore, Baramulla',
         'route_id': 'r1',
         'claims_registered': true,
         'requested_bus_label': 'Bus 2',
@@ -173,7 +188,7 @@ void main() {
     testWidgets('no shows the explainer and Request a seat; bus optional', (
       tester,
     ) async {
-      await pump(tester, const RegistrationScreen());
+      await pump(tester, RegistrationScreen(initial: draftWithPhoto()));
       await fill(tester);
       await chooseRoute(tester, 'South Loop');
       await tester.tap(find.text('No'));
@@ -187,6 +202,8 @@ void main() {
         'full_name': 'Aisha Khan',
         'phone': '+919876543210',
         'department': 'Physics',
+        'enrollment_no': 'NC-2026-001',
+        'home_address': 'Sopore, Baramulla',
         'route_id': 'r2',
         'claims_registered': false,
       });
@@ -207,7 +224,7 @@ void main() {
                     }
                   : null,
             );
-      await pump(tester, const RegistrationScreen());
+      await pump(tester, RegistrationScreen(initial: draftWithPhoto()));
       await fill(tester);
       await chooseRoute(tester, 'North Loop');
       await tester.tap(find.text('No'));
