@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:ctms/core/api/api_client.dart';
+import 'package:ctms/core/ui/theme.dart';
+import 'package:ctms/core/ui/theme.dart';
 import 'package:ctms/features/student/journey_push.dart';
 import 'package:ctms/features/student/registration_providers.dart';
 import 'package:ctms/features/student/student_home_screen.dart';
@@ -77,7 +79,10 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: h.container,
-        child: const MaterialApp(home: StudentHomeScreen()),
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const StudentHomeScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -124,7 +129,10 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: h.container,
-        child: const MaterialApp(home: StudentHomeScreen()),
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const StudentHomeScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
