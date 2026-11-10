@@ -650,8 +650,10 @@ async def test_x6_driver_roster_shows_name_and_department_only(
     trip = await start_trip(driver)
     resp = await client.get(f"{API}/trips/{trip['id']}/roster", headers=driver["headers"])
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"items": [{"name": "Student 1", "department": "Physics"},
-                                     {"name": "Student 2", "department": "History"}]}
+    items = resp.json()["items"]
+    assert [(i["name"], i["department"]) for i in items] == [("Student 1", "Physics"), ("Student 2", "History")]
+    assert all(set(i) == {"student_id", "name", "department", "enrollment_no", "has_photo"} for i in items)
+    assert {i["student_id"] for i in items} == {str(s1), str(s2)}
     assert "+91" not in resp.text and "@" not in resp.text
     other_trip = await start_trip(other_driver)
     resp = await client.get(f"{API}/trips/{trip['id']}/roster", headers=other_driver["headers"])
