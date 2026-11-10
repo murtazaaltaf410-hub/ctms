@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import API_PREFIX, api_router
 from app.config import Settings, get_config
@@ -75,6 +76,14 @@ def create_app(config: Settings | None = None) -> FastAPI:
     app = FastAPI(title="CTMS V1 API", version="1.0.0", description=DESCRIPTION, lifespan=lifespan,
                   docs_url="/docs", openapi_url="/openapi.json")
     init_state(app, config)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Retry-After"],
+    )
     install_request_logging(app, config)  # Phase 9: JSON logs + redaction + request lines
     install_error_handlers(app)
     app.include_router(api_router)
