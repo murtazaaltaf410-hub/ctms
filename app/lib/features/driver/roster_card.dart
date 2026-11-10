@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'driver_controller.dart';
+import 'student_identity_tile.dart';
 
-/// The approved students assigned to this bus (name and department only; the
+/// The approved students assigned to this bus (photo, name, enrollment, department; the
 /// server sends no phone numbers). Refreshes every 15 s like the waiting card.
 class RosterCard extends ConsumerStatefulWidget {
   const RosterCard({
@@ -60,13 +61,15 @@ class _RosterCardState extends ConsumerState<RosterCard> {
         enabled: students.isNotEmpty,
         children: [
           for (final student in students)
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.person_outline),
-              title: Text(student.name),
-              subtitle: student.department == null
-                  ? null
-                  : Text(student.department!),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: StudentIdentityTile(
+                studentId: student.studentId,
+                name: student.name,
+                department: student.department,
+                enrollmentNo: student.enrollmentNo,
+                hasPhoto: student.hasPhoto,
+              ),
             ),
         ],
       ),

@@ -67,8 +67,33 @@ enum PickupDecision {
   };
 }
 
+/// The student behind a pin the driver has to decide on or has accepted.
+class PickupStudent {
+  const PickupStudent({
+    required this.studentId,
+    required this.name,
+    this.department,
+    this.enrollmentNo,
+    this.hasPhoto = false,
+  });
+
+  factory PickupStudent.fromJson(Json json) => PickupStudent(
+    studentId: json['student_id'] as String,
+    name: json['name'] as String,
+    department: json['department'] as String?,
+    enrollmentNo: json['enrollment_no'] as String?,
+    hasPhoto: json['has_photo'] == true,
+  );
+
+  final String studentId;
+  final String name;
+  final String? department;
+  final String? enrollmentNo;
+  final bool hasPhoto;
+}
+
 /// A student waiting on the driver's route and leg (`GET /trips/{id}/pickups`).
-/// The server sends no student identity.
+/// Identity is only sent for pins that needed (or got) the driver's decision.
 class WaitingStudent {
   const WaitingStudent({
     required this.id,
@@ -77,6 +102,8 @@ class WaitingStudent {
     required this.label,
     required this.distanceM,
     required this.createdAt,
+    this.decision = PickupDecision.auto,
+    this.student,
   });
 
   factory WaitingStudent.fromJson(Json json) => WaitingStudent(
@@ -86,6 +113,10 @@ class WaitingStudent {
     label: json['label'] as String?,
     distanceM: toDoubleOrNull(json['distance_m']),
     createdAt: parseTime(json['created_at']),
+    decision: PickupDecision.parse(json['decision']),
+    student: json['student'] is Map
+        ? PickupStudent.fromJson(json['student'] as Json)
+        : null,
   );
 
   final String id;
@@ -96,4 +127,8 @@ class WaitingStudent {
   /// Straight-line distance from the bus, when the bus has a position.
   final double? distanceM;
   final DateTime createdAt;
+  final PickupDecision decision;
+  final PickupStudent? student;
+
+  bool get needsDecision => decision == PickupDecision.needsDecision;
 }

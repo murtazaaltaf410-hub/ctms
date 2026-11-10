@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../../auth/auth_controller.dart';
+import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 import '../../core/ui/maps/transit_map.dart';
 import '../../core/ui/maps/transit_map_models.dart';
@@ -16,7 +16,10 @@ import 'driver_controller.dart';
 import 'driver_map.dart';
 import 'driver_tracking.dart';
 import 'driver_widgets.dart';
+import 'driver_profile_screen.dart';
 import 'roster_card.dart';
+import 'stop_alert_card.dart';
+import 'student_identity_tile.dart';
 
 /// The driver workspace is always dark (night driving), whatever the system
 /// theme says.
@@ -43,9 +46,25 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
       ? TripDirection.toCampus
       : TripDirection.fromCampus;
   final _note = TextEditingController();
+  StreamSubscription<ForegroundPush>? _push;
+
+  @override
+  void initState() {
+    super.initState();
+    // A stop_alert push means the bus has stopped: read the episode now rather
+    // than waiting for the 20 s poll.
+    _push = ref.read(pushServiceProvider).foregroundMessages.listen((message) {
+      if (message.data?['type'] == 'stop_alert') {
+        unawaited(
+          ref.read(driverControllerProvider.notifier).refreshStopEvent(),
+        );
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _push?.cancel();
     _note.dispose();
     super.dispose();
   }
@@ -149,10 +168,10 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
       builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            20,
+            16,
             0,
-            20,
-            20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+            16,
+            16 + MediaQuery.viewInsetsOf(sheetContext).bottom,
           ),
           child: SingleChildScrollView(
             child: Column(
@@ -219,9 +238,21 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
   Widget _activeJourney(DriverState state, Trip trip) {
     final c = context.ctms;
     final roster = ref.watch(rosterProvider(trip.id));
+    final stop = state.stopEvent;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (stop != null && stop.needsReason) ...[
+          StopAlertCard(
+            key: ValueKey(stop.id),
+            event: stop,
+            busy: state.busy,
+            onSubmit: (reason, note) => ref
+                .read(driverControllerProvider.notifier)
+                .submitStopReason(reason, note),
+          ),
+          const SizedBox(height: 16),
+        ],
         JourneyCard(
           direction: _journeyText(trip.direction),
           startedAt: trip.startedAt,
@@ -245,6 +276,7 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
               style: CtmsText.ui(context, 14).copyWith(color: c.muted),
             ),
           ),
+        if (stop != null && !stop.needsReason) StopReasonLine(event: stop),
         const SizedBox(height: 28),
         Text('Journey controls', style: CtmsText.ui(context, 18)),
         const SizedBox(height: 12),
@@ -370,15 +402,18 @@ class _DriverBodyState extends ConsumerState<_DriverBody> {
         child: RefreshIndicator(
           onRefresh: controller.load,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
             children: [
               DriverHeader(
                 eyebrow: trip == null
                     ? 'READY TO DRIVE'
                     : busEyebrow(trip.busLabel),
                 title: trip?.routeName ?? 'My trip',
-                onProfile: () =>
-                    ref.read(authControllerProvider.notifier).signOut(),
+                onProfile: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DriverProfileScreen(),
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
               if (state.error != null)
@@ -483,7 +518,11 @@ class _PickupsTileState extends ConsumerState<_PickupsTile> {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     _push = ref.read(pushServiceProvider).foregroundMessages.listen((message) {
-      if (message.data?['type'] == 'pickup_nearby') {
+      if (message.data?['type'] == 'pickup_decision') {
+        // An unknown student wants a pickup: open the sheet with Accept/Reject.
+        _refresh();
+        if (mounted) widget.onTap();
+      } else if (message.data?['type'] == 'pickup_nearby') {
         _refresh();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -520,6 +559,7 @@ class _PickupsTileState extends ConsumerState<_PickupsTile> {
 }
 
 /// Students who asked to be picked up on this leg, shown in the Pickups sheet.
+/// Pins from another bus's students come first and need Accept or Reject.
 class _WaitingStudentsList extends ConsumerWidget {
   const _WaitingStudentsList({required this.tripId});
 
@@ -527,44 +567,215 @@ class _WaitingStudentsList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final students =
-        ref.watch(waitingStudentsProvider(tripId)).value ?? const [];
-    if (students.isEmpty) return const Text('No students waiting');
+    final all = ref.watch(waitingStudentsProvider(tripId)).value ?? const [];
+    if (all.isEmpty) return const Text('No students waiting');
+    final deciding = [
+      for (final s in all)
+        if (s.needsDecision) s,
+    ];
+    final students = [
+      for (final s in all)
+        if (!s.needsDecision) s,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '${students.length} student${students.length == 1 ? '' : 's'} waiting',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 180,
-          child: TransitMapPreview(
-            title: 'Waiting students',
-            data: TransitMapData(
-              stops: [
-                for (final student in students)
-                  TransitMapStop(
-                    id: student.id,
-                    label: student.label ?? 'Student waiting',
-                    position: MapCoordinate(student.lat, student.lng),
-                  ),
-              ],
+        for (final pickup in deciding)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: PickupDecisionCard(pickup: pickup, tripId: tripId),
+          ),
+        if (students.isNotEmpty) ...[
+          Text(
+            '${students.length} student${students.length == 1 ? '' : 's'} waiting',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 180,
+            child: TransitMapPreview(
+              title: 'Waiting students',
+              data: TransitMapData(
+                stops: [
+                  for (final student in students)
+                    TransitMapStop(
+                      id: student.id,
+                      label:
+                          student.student?.name ??
+                          student.label ??
+                          'Student waiting',
+                      position: MapCoordinate(student.lat, student.lng),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
-        for (final student in students)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.person_pin_circle_outlined),
-            title: Text(student.label ?? 'Student waiting'),
-            trailing: student.distanceM == null
-                ? null
-                : Text('${student.distanceM!.round()} m'),
-          ),
+          for (final student in students)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: student.student == null
+                  ? ListTile(
+                      dense: true,
+                      minTileHeight: 48,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.person_pin_circle_outlined),
+                      title: Text(student.label ?? 'Student waiting'),
+                      trailing: student.distanceM == null
+                          ? null
+                          : Text('${student.distanceM!.round()} m'),
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: StudentIdentityTile(
+                            studentId: student.student!.studentId,
+                            name: student.student!.name,
+                            department: student.student!.department,
+                            enrollmentNo: student.student!.enrollmentNo,
+                            hasPhoto: student.student!.hasPhoto,
+                          ),
+                        ),
+                        if (student.distanceM != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Text('${student.distanceM!.round()} m'),
+                          ),
+                      ],
+                    ),
+            ),
+        ],
       ],
+    );
+  }
+}
+
+/// An unknown student's pin: who they are and Accept / Reject.
+class PickupDecisionCard extends ConsumerStatefulWidget {
+  const PickupDecisionCard({
+    super.key,
+    required this.pickup,
+    required this.tripId,
+  });
+
+  final WaitingStudent pickup;
+  final String tripId;
+
+  @override
+  ConsumerState<PickupDecisionCard> createState() => _PickupDecisionCardState();
+}
+
+class _PickupDecisionCardState extends ConsumerState<PickupDecisionCard> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _decide(bool accept) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(pickupDecisionProvider)(
+        widget.tripId,
+        widget.pickup.id,
+        accept,
+      );
+    } on ApiException catch (e) {
+      _error = e.userMessage;
+    } catch (_) {
+      _error = 'Could not send your answer. Please try again.';
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ctms;
+    final student = widget.pickup.student;
+    return Container(
+      key: Key('decision-${widget.pickup.id}'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.gold, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'WANTS A PICKUP',
+            style: CtmsText.ui(
+              context,
+              12,
+              FontWeight.w600,
+            ).copyWith(color: c.gold, letterSpacing: 0.4),
+          ),
+          const SizedBox(height: 8),
+          if (student != null)
+            StudentIdentityTile(
+              studentId: student.studentId,
+              name: student.name,
+              department: student.department,
+              enrollmentNo: student.enrollmentNo,
+              hasPhoto: student.hasPhoto,
+              photoWidth: 64,
+            )
+          else
+            Text(
+              'Unknown student',
+              style: CtmsText.ui(context, 16, FontWeight.w600),
+            ),
+          if (widget.pickup.label != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              widget.pickup.label!,
+              style: CtmsText.ui(context, 13).copyWith(color: c.muted),
+            ),
+          ],
+          if (widget.pickup.distanceM != null)
+            Text(
+              '${widget.pickup.distanceM!.round()} m from the bus',
+              style: CtmsText.ui(context, 13).copyWith(color: c.muted),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton(
+                    key: const Key('pickup-reject'),
+                    onPressed: _busy ? null : () => _decide(false),
+                    child: const Text('Reject'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: FilledButton(
+                    key: const Key('pickup-accept'),
+                    onPressed: _busy ? null : () => _decide(true),
+                    child: const Text('Accept'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _error!,
+                style: CtmsText.ui(
+                  context,
+                  13,
+                ).copyWith(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

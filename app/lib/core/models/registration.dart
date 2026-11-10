@@ -164,13 +164,25 @@ class NearestRoute {
 
 /// One entry of `GET /trips/{id}/roster`: name and department only.
 class RosterStudent {
-  const RosterStudent({required this.name, this.department});
+  const RosterStudent({
+    required this.name,
+    this.department,
+    this.studentId,
+    this.enrollmentNo,
+    this.hasPhoto = false,
+  });
 
   factory RosterStudent.fromJson(Json json) => RosterStudent(
     name: json['name'] as String,
     department: json['department'] as String?,
+    studentId: json['student_id'] as String?,
+    enrollmentNo: json['enrollment_no'] as String?,
+    hasPhoto: json['has_photo'] == true,
   );
 
   final String name;
   final String? department;
+  final String? studentId;
+  final String? enrollmentNo;
+  final bool hasPhoto;
 }

@@ -71,11 +71,11 @@ class DriverHeader extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         IconButton(
-          tooltip: 'Sign out',
+          tooltip: 'My profile',
           onPressed: onProfile,
           style: IconButton.styleFrom(
             backgroundColor: c.surface,
-            fixedSize: const Size(44, 44),
+            fixedSize: const Size(48, 48),
           ),
           icon: Icon(Icons.person_outline, color: c.text, size: 20),
         ),
@@ -137,8 +137,10 @@ class JourneyCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 28),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runSpacing: 12,
+            spacing: 12,
             children: [
               stat(formatClock(startedAt), 'Started'),
               if (assigned != null) stat('$assigned', 'Assigned'),
@@ -329,13 +331,15 @@ class DriverFooter extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Text(
-          'Precise location active',
-          style: CtmsText.ui(
-            context,
-            14,
-            FontWeight.w600,
-          ).copyWith(color: c.olive),
+        Flexible(
+          child: Text(
+            'Precise location active',
+            style: CtmsText.ui(
+              context,
+              14,
+              FontWeight.w600,
+            ).copyWith(color: c.olive),
+          ),
         ),
       ],
     );

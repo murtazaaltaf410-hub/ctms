@@ -7,6 +7,7 @@ import '../../core/api/api_exception.dart';
 import '../../core/models/models.dart';
 import '../../privacy/app_config.dart';
 import 'driver_fix.dart';
+import 'driver_models.dart';
 import 'driver_repository.dart';
 import 'driver_tracking.dart';
 
@@ -19,6 +20,7 @@ class DriverState {
     this.buffered = 0,
     this.error,
     this.summary,
+    this.stopEvent,
   });
 
   final Trip? trip;
@@ -32,6 +34,9 @@ class DriverState {
   /// waiting for the driver to acknowledge it.
   final Trip? summary;
 
+  /// The open "bus stopped" episode (null while moving or unknown).
+  final StopEvent? stopEvent;
+
   DriverState copyWith({
     Trip? trip,
     List<RouteSummary>? routes,
@@ -43,6 +48,8 @@ class DriverState {
     bool clearTrip = false,
     Trip? summary,
     bool clearSummary = false,
+    StopEvent? stopEvent,
+    bool clearStopEvent = false,
   }) => DriverState(
     trip: clearTrip ? null : trip ?? this.trip,
     routes: routes ?? this.routes,
@@ -51,6 +58,7 @@ class DriverState {
     buffered: buffered ?? this.buffered,
     error: clearError ? null : error ?? this.error,
     summary: clearSummary ? null : summary ?? this.summary,
+    stopEvent: clearStopEvent ? null : stopEvent ?? this.stopEvent,
   );
 }
 
@@ -120,6 +128,7 @@ class DriverController extends Notifier<DriverState> {
         buffered: trip == null ? 0 : await _buffer.count(trip.id),
       );
       _watchTrip(trip != null);
+      if (trip != null) unawaited(refreshStopEvent());
     } on ApiException catch (e) {
       state = state.copyWith(loading: false, error: e);
     } catch (_) {
@@ -186,9 +195,49 @@ class DriverController extends Notifier<DriverState> {
         await _serverEnded(trip.id);
       } else {
         state = state.copyWith(trip: latest);
+        await refreshStopEvent();
       }
     } on ApiException {
       // Offline: try again at the next tick.
+    }
+  }
+
+  /// Re-reads the open stop episode (20 s poll or a `stop_alert` push).
+  Future<void> refreshStopEvent() async {
+    final trip = state.trip;
+    if (trip == null) return;
+    try {
+      final event = await _repository.stopEvent(trip.id);
+      if (state.trip?.id != trip.id) return;
+      state = event == null
+          ? state.copyWith(clearStopEvent: true)
+          : state.copyWith(stopEvent: event);
+    } on ApiException {
+      // Keep what is shown; the next tick retries.
+    } catch (_) {
+      // An unexpected payload must never break the journey screen.
+    }
+  }
+
+  /// Answers "why did the bus stop?". The server updates the trip status and
+  /// note students see, so the trip is re-read afterwards.
+  Future<void> submitStopReason(StopReason reason, String note) async {
+    final trip = state.trip;
+    if (trip == null) return;
+    state = state.copyWith(busy: true, clearError: true);
+    try {
+      final event = await _repository.stopReason(trip.id, reason, note);
+      state = event == null
+          ? state.copyWith(busy: false, clearStopEvent: true)
+          : state.copyWith(busy: false, stopEvent: event);
+      await refreshActive();
+    } on ApiException catch (e) {
+      state = state.copyWith(busy: false, error: e);
+    } catch (_) {
+      state = state.copyWith(
+        busy: false,
+        error: const ApiException(ApiErrorCode.unknown),
+      );
     }
   }
 
@@ -230,7 +279,12 @@ class DriverController extends Notifier<DriverState> {
       await _repository.endTrip(trip);
       await _tracker.stop();
       _watchTrip(false);
-      state = state.copyWith(clearTrip: true, busy: false, buffered: 0);
+      state = state.copyWith(
+        clearTrip: true,
+        clearStopEvent: true,
+        busy: false,
+        buffered: 0,
+      );
     } on ApiException catch (e) {
       state = state.copyWith(busy: false, error: e);
     } catch (_) {
@@ -282,3 +336,43 @@ final rosterProvider = FutureProvider.autoDispose
 
 final driverControllerProvider =
     NotifierProvider<DriverController, DriverState>(DriverController.new);
+
+/// The driver's own profile (`GET /me/driver-profile`).
+final driverProfileProvider = FutureProvider.autoDispose<DriverProfile>(
+  (ref) => ref.watch(driverRepositoryProvider).profile(),
+);
+
+/// Stop-alert preferences; updates replace the state with the server's answer.
+class DriverPrefsController extends AsyncNotifier<DriverPrefs> {
+  @override
+  Future<DriverPrefs> build() => ref.read(driverRepositoryProvider).prefs();
+
+  /// Throws [ApiException] on failure and leaves the state alone.
+  Future<void> save({bool? stopAlertsEnabled, int? snoozeMinutes}) async {
+    final saved = await ref
+        .read(driverRepositoryProvider)
+        .setPrefs(
+          stopAlertsEnabled: stopAlertsEnabled,
+          snoozeMinutes: snoozeMinutes,
+        );
+    state = AsyncData(saved);
+  }
+}
+
+final driverPrefsProvider =
+    AsyncNotifierProvider.autoDispose<DriverPrefsController, DriverPrefs>(
+      DriverPrefsController.new,
+    );
+
+/// Accept or reject a pin from another bus's student, then refresh the list.
+final pickupDecisionProvider =
+    Provider<
+      Future<void> Function(String tripId, String pickupId, bool accept)
+    >(
+      (ref) => (tripId, pickupId, accept) async {
+        await ref
+            .read(driverRepositoryProvider)
+            .decide(pickupId, accept: accept);
+        ref.invalidate(waitingStudentsProvider(tripId));
+      },
+    );

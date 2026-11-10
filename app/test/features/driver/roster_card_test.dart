@@ -1,4 +1,5 @@
 import 'package:ctms/core/models/user.dart';
+import 'package:ctms/core/ui/theme.dart';
 import 'package:ctms/features/driver/roster_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,7 +16,8 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: h.container,
-        child: const MaterialApp(
+        child: MaterialApp(
+          theme: AppTheme.light(),
           home: Scaffold(body: RosterCard(tripId: 'trip1')),
         ),
       ),
